@@ -31,6 +31,9 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 path = "src/machine_link/__init__.py"
 
+[tool.hatch.build.targets.sdist]
+exclude = ["/tmp", "/.github"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/machine_link"]
 

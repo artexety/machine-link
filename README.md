@@ -36,8 +36,8 @@ More providers are planned. Adding one is a single module; see [Contributing](#c
 ## Installation
 
 ```bash
-uv tool install git+https://github.com/artexety/machine-link
-# or: pipx install git+https://github.com/artexety/machine-link
+uv tool install machine-link        # or: pipx install machine-link
+uvx --from machine-link mlink --help  # try it without installing
 ```
 
 Then, once per computer:

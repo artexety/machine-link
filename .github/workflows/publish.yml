@@ -1,0 +1,38 @@
+name: publish
+
+# Publishes to PyPI through trusted publishing when a version tag is pushed.
+# The tag must match the package version, and the PyPI project must list
+# this repository, workflow and environment as its publisher.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: tag matches the package version
+        run: |
+          version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/machine_link/__init__.py)"
+          test "v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} but package is ${version}"; exit 1; }
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
