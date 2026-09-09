@@ -1,0 +1,21 @@
+# Project config: mlink.toml at the project's root, committed with it.
+# What to deploy. Found by walking up from the working directory, like git finds .git.
+#
+# An EMPTY mlink.toml is valid: the enclosing repository's own origin remote is then cloned
+# to ~/<name> on the machine. Everything below is optional.
+
+[[repos]]                          # omit to deploy the enclosing repo itself
+url = "git@github.com:you/research.git"
+dest = "~/research"                # path on the machine; ~ is expanded there
+branch = ""                        # optional; empty = the default branch
+post_clone = ["uv sync"]           # shell commands, run in dest after clone or pull
+
+[[sync]]                           # used by 'mlink pull'
+remote = "~/research/runs"
+local = "~/runs"
+
+[provision]                        # run before the repos, in order
+commands = [
+  "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync tmux htop",
+]
+script = ""                        # local path; copied over, run with bash, removed
