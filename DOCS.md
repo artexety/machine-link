@@ -89,7 +89,7 @@ Makes a machine ready:
 4. sets your git identity
 5. runs `[provision]` commands, then the script (`--skip-provision` skips both)
 6. clones each `[[repos]]` entry, or fetches and fast-forwards it, then runs `post_clone`
-7. pins the machine to this project and prints a summary
+7. pins the machine to this project, records the deployed repos for `down`, prints a summary
 
 `--name` names a machine given as an address. Provisioning output is shown with `-v`; on
 failure the last line is printed either way.
@@ -110,8 +110,8 @@ Copies each `[[sync]]` remote path into its local path with `rsync -az --partial
 warns when it is missing and the project has `[[sync]]` entries.
 
 ### `mlink check [TARGET]`
-Exits 5 if any configured repo on the machine has uncommitted changes or unpushed commits.
-`--json` for scripts. This is the gate `down` runs.
+Exits 5 if any repo `up` deployed to the machine, or any `[[repos]]` entry of this project, has
+uncommitted changes or unpushed commits. `--json` for scripts. This is the gate `down` runs.
 
 ---
 
@@ -136,7 +136,8 @@ destroying it**. For boxes terminated elsewhere, or `[[machines]]` entries you n
 (remove them from the config too, or they come back).
 
 ### `mlink down [TARGET]`
-Checks for unpushed work, confirms, destroys the machine at its provider, then forgets it.
+Checks every repo `up` deployed to the machine for unpushed work, whichever directory you run it
+from, confirms, destroys the machine at its provider, then forgets it.
 
 | Flag | Meaning |
 |---|---|

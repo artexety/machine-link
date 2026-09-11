@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from . import __version__, config, providers, remote, sshconf
-from .config import Project, Settings
+from .config import Project, Repo, Settings
 from .models import STATIC, Machine, Offer, looks_like_target, valid_name
 from .registry import Registry, state_dir, unique_name
 from .ui import OPTS, Fail, err, out, report, say, step, warn
@@ -118,6 +118,13 @@ def _hint(state: State, machine: Machine) -> str:
     if machine.provider == STATIC:
         return f"ssh-copy-id -i {state.settings.ssh.pubkey} {machine.user}@{machine.host}"
     return providers.get(state.settings, machine.provider).key_hint
+
+
+def _repos(state: State, machine: Machine) -> list[Repo]:
+    """What to inspect on a machine: this project's repos, plus whatever `up` deployed there."""
+    repos = list(state.project.repos)
+    dests = {repo.dest for repo in repos}
+    return repos + [Repo(url="", dest=d) for d in machine.repos if d not in dests]
 
 
 def _confirm(action: str, yes: bool) -> None:
@@ -241,6 +248,7 @@ def up(
         remote.provision(machine, state.project)
     for repo in state.project.repos:
         remote.sync_repo(machine, repo)
+    machine.repos = sorted({*machine.repos, *(repo.dest for repo in state.project.repos)})
     state.registry.add(machine, state.project.dir)
     state.registry.save()
 
@@ -309,12 +317,15 @@ def pull(
 def check(target: TargetArg = None, as_json: JsonOpt = False) -> None:
     """Exit 5 if any repo on the machine has uncommitted or unpushed work."""
     state = _load()
-    if not state.project.repos:
-        raise Fail(
-            2, "no mlink.toml with repos above the working directory", "run it inside a project"
-        )
     machine = _machine(state, target)
-    states = [remote.repo_state(machine, repo) for repo in state.project.repos]
+    repos = _repos(state, machine)
+    if not repos:
+        raise Fail(
+            2,
+            f"no [[repos]] here and nothing was deployed to {machine.name} by 'mlink up'",
+            "run it inside a project",
+        )
+    states = [remote.repo_state(machine, repo) for repo in repos]
     if as_json:
         out.print(json.dumps([asdict(s) for s in states], indent=2))
     else:
@@ -672,14 +683,15 @@ def down(
 
 
 def _safe(state: State, machine: Machine) -> bool:
-    """Whether every configured repo on the machine is clean and pushed. Unreachable is unsafe."""
-    if not state.project.repos:
-        say("no repos configured for this project; nothing to check")
+    """Whether every repo deployed to the machine is clean and pushed. Unreachable is unsafe."""
+    repos = _repos(state, machine)
+    if not repos:
+        say(f"no [[repos]] here and nothing was deployed to {machine.name}; nothing to check")
         return True
     if not machine.host:
         return False
     try:
-        states = [remote.repo_state(machine, repo) for repo in state.project.repos]
+        states = [remote.repo_state(machine, repo) for repo in repos]
     except Fail as exc:
         warn(f"could not inspect the machine: {exc.message}")
         return False

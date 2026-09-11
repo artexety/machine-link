@@ -120,6 +120,26 @@ def test_a_machine_without_an_address_is_refused_everywhere_but_down_force(
     assert not calls.matching("ssh-keygen")  # nothing to forget: it never had a host key
 
 
+def test_up_records_the_deployed_repos_so_down_and_check_work_from_anywhere(
+    settings, project, healthy, http, rented, tmp_path, monkeypatch
+):
+    fake = http(PRIME_ROUTES)
+    assert mlink("up")[0] == 0
+    assert Registry().machines["ptest"].repos == ["~/research"]
+    monkeypatch.chdir(tmp_path)  # no mlink.toml anywhere above here
+    healthy.answers.clear()
+    healthy.answer("--mlink--", stdout=DIRTY)
+    assert mlink("check")[0] == 5
+    assert mlink("down", "--yes")[0] == 5
+    assert not fake.sent("DELETE", "/pods/0f0e0d0c0b0a09080706050403020100")
+    healthy.answers.clear()
+    healthy.answer("--mlink--", stdout=CLEAN)
+    assert mlink("down", "--yes")[0] == 0
+    assert fake.sent("DELETE", "/pods/0f0e0d0c0b0a09080706050403020100")
+    inspected = [argv[-1] for argv in healthy.matching("--mlink--")]
+    assert inspected and all(script.startswith("cd ~/research ") for script in inspected)
+
+
 # ---- check, pull, ssh ----------------------------------------------------------------------
 
 

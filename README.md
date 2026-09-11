@@ -112,9 +112,10 @@ mlink check                    # exit 5 if anything is uncommitted or unpushed
 mlink down                     # the same check, a confirmation, then the machine is destroyed
 ```
 
-`down` treats a machine it cannot reach as unsafe. `--force` overrides the gate. When a machine
-goes, so do its alias, its host key and its control connection; `mlink forget` does the same
-without destroying anything.
+The check covers every repo `up` deployed to the machine, whichever directory you run it
+from. `down` treats a machine it cannot reach as unsafe. `--force` overrides the gate.
+When a machine goes, so do its alias, its host key and its control connection; `mlink forget`
+does the same without destroying anything.
 
 ## How it works
 

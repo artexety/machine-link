@@ -36,6 +36,8 @@ class Machine:
     gpu: str = ""
     region: str = ""
     status: str = ""
+    #: Paths of the repos `up` deployed here, so `down` can check them from any directory.
+    repos: list[str] = field(default_factory=list)
 
     @property
     def alias(self) -> str:
