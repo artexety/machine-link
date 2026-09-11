@@ -33,8 +33,20 @@ PRIME_AVAILABILITY = {
             "prices": {"onDemand": 23.92},
             "images": [],
         },
+        {
+            "cloudId": "cpu-d3_2vcpu-8gb",
+            "gpuType": "CPU_NODE",
+            "gpuCount": 1,
+            "socket": "PCIe",
+            "provider": "nebius",
+            "region": "united_states",
+            "dataCenter": "us-central1",
+            "stockStatus": "Available",
+            "prices": {"onDemand": 0.0496},
+            "images": [],
+        },
     ],
-    "totalCount": 2,
+    "totalCount": 3,
 }
 PRIME_PODS = {
     "total_count": 4,
@@ -157,7 +169,7 @@ VERDA_ROUTES = {
 
 def test_prime_offers_carry_the_data_center_and_stock(settings, http):
     http(PRIME_ROUTES)
-    a6000, h100 = Prime(settings).offers()
+    a6000, h100, cpu = Prime(settings).offers()
     assert (a6000.id, a6000.gpu, a6000.region, a6000.price_hr, a6000.available) == (
         "gpu_1x_a6000",
         "A6000_48GB",
@@ -166,6 +178,7 @@ def test_prime_offers_carry_the_data_center_and_stock(settings, http):
         True,
     )
     assert (h100.gpu_count, h100.available) == (8, False)
+    assert (cpu.gpu, cpu.gpu_count) == ("CPU_NODE", 0)  # Prime says gpuCount 1 for these
     assert Prime(settings).offers(spot=True) == []
 
 

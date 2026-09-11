@@ -297,6 +297,8 @@ def test_gpus_lists_cheapest_first_and_remembers_the_rows(settings, project, htt
     assert len(json.loads(cli._rows_file().read_text())) == 3
     code, output = mlink("gpus", "--provider", "verda", "--spot", "--gpu", "a6000", "--json")
     assert json.loads(output)[0]["price_hr"] == 0.305
+    code, output = mlink("gpus", "--cpu", "--json", "--limit", "1")
+    assert json.loads(output)[0]["gpu"] == "CPU_NODE"  # the cheapest row once CPU nodes show
 
 
 def test_renting_needs_a_configured_provider(settings, http):

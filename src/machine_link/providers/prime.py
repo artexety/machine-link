@@ -63,12 +63,15 @@ class Prime:
         found = []
         for item in self._call("GET", "/availability/gpus?page_size=100")["items"]:
             stock = str(item.get("stockStatus") or "").lower()
+            gpu = item.get("gpuType") or "?"
+            # CPU nodes come as gpuType "CPU_NODE" with gpuCount 1; the count alone cannot tell.
+            count = 0 if gpu.upper().startswith("CPU") else int(item.get("gpuCount") or 1)
             found.append(
                 Offer(
                     provider=self.name,
                     id=item["cloudId"],
-                    gpu=item.get("gpuType") or "?",
-                    gpu_count=int(item.get("gpuCount") or 1),
+                    gpu=gpu,
+                    gpu_count=count,
                     region=item.get("dataCenter") or item.get("region") or "",
                     price_hr=number((item.get("prices") or {}).get("onDemand")),
                     available=stock not in ("unavailable", "none", "out_of_stock"),
