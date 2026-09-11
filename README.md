@@ -1,5 +1,8 @@
 # machine-link
 
+[![PyPI](https://img.shields.io/pypi/v/machine-link)](https://pypi.org/project/machine-link/)
+[![CI](https://github.com/artexety/machine-link/actions/workflows/ci.yml/badge.svg)](https://github.com/artexety/machine-link/actions/workflows/ci.yml)
+
 One command to prepare a rented or local machine for work.
 
 ```bash
@@ -49,6 +52,8 @@ mlink init
 `init` checks that your ssh key exists and is loaded in the agent, that GitHub greets it,
 writes `~/.config/mlink/config.toml` and the managed block in `~/.ssh/config`, and registers
 your public key at every configured provider. Rerun it any time; it is also the doctor.
+Both `init` and `up` check that github.com accepts the key, so a GitHub account is assumed;
+other git hosts are not supported yet.
 
 Provider credentials go in the environment or in `~/.config/mlink/.env` (`chmod 600`); `init`
 turns on the providers it finds credentials for:
@@ -143,7 +148,8 @@ outside the block markers is left untouched; a one-time backup is kept at
 `~/.ssh/config.mlink.bak`.
 
 The pointer from a project to its machine lives in `~/.local/state/mlink/machines.json`.
-Commands run outside a project fall back to the last machine used and say so; `down` never does.
+Commands run outside a project fall back to the last machine used and say so. Inside a project,
+`down` never acts on another project's machine by fallback.
 
 ## Configuration
 
@@ -163,8 +169,8 @@ Commands run outside a project fall back to the last machine used and say so; `d
 
 A provider is enabled by the presence of its `[providers.<name>]` section; `init` writes the
 sections for the providers whose credentials it finds and leaves the others commented out.
-Annotated copies of both files are in [examples/](examples/); every command and flag is in
-[DOCS.md](DOCS.md).
+Annotated copies of both files are in [examples/](https://github.com/artexety/machine-link/tree/main/examples); every command and
+flag is in [DOCS.md](https://github.com/artexety/machine-link/blob/main/DOCS.md).
 
 ## Exit codes
 
@@ -187,6 +193,9 @@ uv run ruff check && uv run ruff format --check && uv run pytest
 Tests never reach the network or a real ssh. Provider fixtures are payloads recorded from the
 live APIs, and an autouse fixture redirects `$HOME` so no test can touch your own files.
 
+To release: set `__version__`, tag `vX.Y.Z` and push the tag. CI publishes to PyPI and creates
+the GitHub release.
+
 ## Contributing
 
 Pull requests are welcome, providers especially. A provider is one module in
@@ -196,4 +205,4 @@ against recorded API payloads and run the checks above before opening a pull req
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/artexety/machine-link/blob/main/LICENSE)

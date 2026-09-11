@@ -6,10 +6,20 @@ readme = "README.md"
 authors = [{ name = "Artexety", email = "x@alexanderlowa.com" }]
 license = "MIT"
 license-files = ["LICENSE"]
+keywords = ["gpu", "ssh", "cloud", "rent", "prime-intellect", "verda", "remote-development"]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Systems Administration",
 ]
 requires-python = ">=3.11"
