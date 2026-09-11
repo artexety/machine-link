@@ -8,7 +8,7 @@ practice, whatever the spec says.
 from __future__ import annotations
 
 from ..config import Settings
-from ..models import Machine, Offer, parse_target
+from ..models import Filters, Machine, Offer, parse_target
 from . import http, key_name, number, pubkey_text, same_key, secret
 
 API = "https://api.primeintellect.ai/api/v1"
@@ -57,7 +57,7 @@ class Prime:
             )
         return found
 
-    def offers(self, *, spot: bool = False) -> list[Offer]:
+    def offers(self, filters: Filters, *, spot: bool = False) -> list[Offer]:
         if spot:
             return []  # the public availability endpoint has no spot rows
         found = []

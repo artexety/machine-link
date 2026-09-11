@@ -15,8 +15,8 @@ mlink down                             # refuses on unpushed work, then destroys
 
 ## Highlights
 
-- Rents GPUs from [Prime Intellect](https://www.primeintellect.ai) and [Verda](https://verda.com),
-  or adopts any machine you can already ssh to.
+- Rents GPUs from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and
+  [Verda](https://verda.com), or adopts any machine you can already ssh to.
 - Wraps the system `ssh`, `scp` and `rsync`. No Python SSH library, no daemon, no agent on the box.
 - Every machine becomes a `Host` alias in `~/.ssh/config`, so `ssh trainer` works in git, rsync
   and VS Code Remote-SSH.
@@ -31,6 +31,7 @@ mlink down                             # refuses on unpushed work, then destroys
 | Provider | Rent | Notes |
 |---|---|---|
 | [Prime Intellect](https://www.primeintellect.ai) | yes | on-demand pods |
+| [Vast.ai](https://vast.ai) | yes | on-demand and interruptible instances, reached through Vast's ssh proxy |
 | [Verda](https://verda.com) | yes | on-demand and spot instances |
 | Local | no | any machine with a fixed address, listed under `[[machines]]` |
 
@@ -60,6 +61,7 @@ turns on the providers it finds credentials for:
 
 ```
 PRIME_API_KEY=...            # app.primeintellect.ai > settings > API keys
+VAST_API_KEY=...             # cloud.vast.ai > Account > Keys
 VERDA_CLIENT_ID=...          # Verda console > Credentials > Cloud API Credentials
 VERDA_CLIENT_SECRET=...
 ```
@@ -70,7 +72,8 @@ VERDA_CLIENT_SECRET=...
 
 ```bash
 mlink gpus                              # GPU rows only, every provider, cheapest first
-mlink gpus --spot                       # Verda spot prices
+mlink gpus --spot                       # spot and interruptible prices: Verda, Vast
+mlink gpus --gpu h100 --gpu-count 8     # Vast answers 64 offers per search, so narrow it
 mlink launch 3 --name trainer           # row 3 of the last listing
 mlink launch 1A100.22V --region FIN-02  # or an offer id
 mlink launch --gpu a6000 --up           # or the cheapest match, then run 'up'
@@ -163,6 +166,8 @@ Commands run outside a project fall back to the last machine used and say so. In
 | `ssh.reachability_timeout` | `600` | Seconds to wait for a fresh machine to accept ssh |
 | `git.name`, `git.email` | | Set with `git config --global` on the box |
 | `providers.prime.image` | the offer's first image | Prime pod image |
+| `providers.vast.image` | `vastai/base-image:@vastai-automatic-tag` | Docker image; Vast adds sshd to it |
+| `providers.vast.disk_gb` | `50` | Disk of a Vast instance |
 | `providers.verda.image` | `ubuntu-24.04-cuda-12.6` | Verda image |
 | `providers.verda.location` | `FIN-01` | Used when an offer names no location |
 | `machines[].name`, `.host`, `.user`, `.port` | | Machines with a fixed address and no API |

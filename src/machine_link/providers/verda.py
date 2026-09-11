@@ -8,7 +8,7 @@ Images log in as root.
 from __future__ import annotations
 
 from ..config import Settings
-from ..models import Machine, Offer
+from ..models import Filters, Machine, Offer
 from . import http, key_name, number, pubkey_text, same_key, secret
 
 API = "https://api.verda.com/v1"
@@ -59,7 +59,7 @@ class Verda:
             for item in self._call("GET", "/instances")
         ]
 
-    def offers(self, *, spot: bool = False) -> list[Offer]:
+    def offers(self, filters: Filters, *, spot: bool = False) -> list[Offer]:
         """One offer per instance type and location with capacity; unstocked types listed once."""
         where: dict[str, list[str]] = {}
         query = "?is_spot=true" if spot else ""

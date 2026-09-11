@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import socket
 import subprocess
 from collections.abc import Callable
@@ -78,7 +79,11 @@ def calls(monkeypatch):
 
 
 class Http:
-    """A fake transport: (method, path after /v1) -> answer, recording every call."""
+    """A fake transport: (method, path after the version prefix) -> answer, recording every call.
+
+    A path with a query string falls back to the bare path, so paginated listings can be keyed
+    without spelling their parameters out.
+    """
 
     def __init__(self, routes: dict):
         self.routes = routes
@@ -86,8 +91,10 @@ class Http:
 
     def __call__(self, method, url, headers, body=None, **kwargs):
         self.calls.append((method, url, headers, body))
-        path = url.split("/v1", 1)[1]
+        path = re.sub(r"^https?://[^/]+(/api)?/v[01]", "", url)
         answer = self.routes.get((method, path))
+        if answer is None:
+            answer = self.routes.get((method, path.split("?")[0]))
         if answer is None:
             raise AssertionError(f"unexpected call {method} {url}")
         return answer(body) if callable(answer) else answer
@@ -101,10 +108,11 @@ def http(monkeypatch) -> Callable[[dict], Http]:
     """Install fake routes for both providers; returns the recorder."""
 
     def install(routes: dict) -> Http:
-        from machine_link.providers import prime, verda
+        from machine_link.providers import prime, vast, verda
 
         fake = Http(routes)
         monkeypatch.setattr(prime, "http", fake)
+        monkeypatch.setattr(vast, "http", fake)
         monkeypatch.setattr(verda, "http", fake)
         return fake
 
@@ -126,10 +134,11 @@ def settings(isolated_home, monkeypatch):
         '[[machines]]\nname = "workstation"\nhost = "192.168.1.50"\nuser = "alex"\n'
     )
     (conf / ".env").write_text(
-        "PRIME_API_KEY=prime-secret\nVERDA_CLIENT_ID=cid\nVERDA_CLIENT_SECRET=csecret\n"
+        "PRIME_API_KEY=prime-secret\nVAST_API_KEY=vast-secret\n"
+        "VERDA_CLIENT_ID=cid\nVERDA_CLIENT_SECRET=csecret\n"
     )
     (conf / ".env").chmod(0o600)
-    for name in ("PRIME_API_KEY", "VERDA_CLIENT_ID", "VERDA_CLIENT_SECRET"):
+    for name in ("PRIME_API_KEY", "VAST_API_KEY", "VERDA_CLIENT_ID", "VERDA_CLIENT_SECRET"):
         monkeypatch.setenv(name, "")  # restored after the test; .env fills it meanwhile
     return config_mod.load_settings()
 

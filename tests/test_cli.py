@@ -12,7 +12,7 @@ from machine_link import cli, config, sshconf
 from machine_link.registry import Registry
 from machine_link.ui import Fail
 from tests.conftest import PUBKEY
-from tests.test_providers import PRIME_ROUTES, VERDA_ROUTES
+from tests.test_providers import PRIME_ROUTES, VAST_ROUTES, VERDA_ROUTES
 
 runner = CliRunner()
 CLEAN = "main\nabc1234\n--mlink--\n\n--mlink--\n"
@@ -309,6 +309,17 @@ def test_renting_needs_a_configured_provider(settings, http):
     settings.path.write_text("[ssh]\n")
     assert mlink("gpus")[0] == 2
     assert mlink("launch", "--gpu", "a100", "--dry-run")[0] == 2
+
+
+def test_gpus_and_launch_reach_vast_with_the_gpu_hint_and_accept_its_numeric_ids(settings, http):
+    fake = http(VAST_ROUTES)
+    settings.path.write_text("[ssh]\n[providers.vast]\n")
+    code, output = mlink("gpus", "--gpu", "h100", "--gpu-count", "8", "--json")
+    assert code == 0 and [r["id"] for r in json.loads(output)] == ["48480002"]
+    assert fake.sent("POST", "/bundles/")[-1]["gpu_name"] == {"in": ["H100 NVL", "H100 SXM"]}
+    assert mlink("launch", "48480002", "--dry-run")[0] == 0  # beyond the one row: an offer id
+    assert fake.sent("POST", "/bundles/")[-1]["id"] == {"eq": 48480002}
+    assert mlink("launch", "7", "--dry-run")[0] == 2  # neither a row nor an id
 
 
 def test_launch_refuses_unattended_and_creates_nothing_on_a_dry_run(settings, project, http):

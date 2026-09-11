@@ -4,7 +4,7 @@ from machine_link import cli, sshconf
 from tests.test_cli import CLEAN, mlink
 from tests.test_providers import PRIME_ROUTES, VERDA_ROUTES
 
-SECRETS = ("prime-secret", "csecret", "PRIVATE KEY MATERIAL")
+SECRETS = ("prime-secret", "vast-secret", "csecret", "PRIVATE KEY MATERIAL")
 
 
 def test_no_key_material_or_secret_ever_reaches_a_command_line(settings, project, http, calls):

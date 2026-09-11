@@ -204,6 +204,7 @@ email = "{git_email}"
 # it finds. Credentials are read from the environment or from ~/.config/mlink/.env, never
 # from this file:
 #   PRIME_API_KEY                          app.primeintellect.ai > settings > API keys
+#   VAST_API_KEY                           cloud.vast.ai > Account > Keys
 #   VERDA_CLIENT_ID, VERDA_CLIENT_SECRET   Verda console > Credentials > Cloud API
 
 {providers}
@@ -219,6 +220,11 @@ PROVIDER_SECTIONS = {
 [providers.prime]
 # image = "ubuntu_22_cuda_12"       # default: the first image the offer lists
 # disk_gb = 256
+""",
+    "vast": """\
+[providers.vast]
+# image = "vastai/base-image:@vastai-automatic-tag"   # any docker image; Vast adds sshd
+# disk_gb = 50
 """,
     "verda": """\
 [providers.verda]

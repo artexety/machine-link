@@ -45,14 +45,17 @@ Everything your configured providers will rent right now, cheapest first, with a
 | `--gpu-count N` | At least this many GPUs |
 | `--region TEXT` | Region contains this (`fin`, `us-east`) |
 | `--provider NAME` | Only this provider |
-| `--spot` | Spot pricing; currently Verda |
+| `--spot` | Spot or interruptible pricing: Verda, Vast |
 | `--cpu` | Include CPU-only instances, hidden by default |
 | `--limit N` | Rows to show (default 20) |
 | `--json` | Machine-readable, with each row's id and provider record |
 
 The rows are remembered, so a row number can stand in for an id in `launch`. Prime's region
-column is the data center (`us-central-1`); Verda's is the location (`FIN-01`). With no provider
-configured, or an unknown `--provider`, it exits 2 and says what to add.
+column is the data center (`us-central-1`); Verda's is the location (`FIN-01`); Vast's is the
+host's location (`US, TX`). Vast answers at most 64 offers per search, cheapest first, so narrow
+it with `--gpu` or `--gpu-count`: the GPU fragment is matched against Vast's catalogue names and
+sent along. With no provider configured, or an unknown `--provider`, it exits 2 and says what
+to add.
 
 ### `mlink launch [ROW | ID]`
 Creates a machine, registers it, writes its ssh alias.
@@ -72,6 +75,9 @@ mlink launch 1 --up                     # ... and run 'up' once it is reachable
 | `--yes`, `-y` | Skip the confirmation |
 | `--dry-run` | Print the resolved offer and price; call no provider |
 | `--gpu`, `--region`, `--max-price`, `--gpu-count`, `--provider` | As in `gpus`, when no row is given |
+
+A number is a row when the last listing has that many rows, otherwise an offer id; Vast's ids
+are numbers. A Vast `--spot` launch bids the listed minimum price and can be outbid later.
 
 The plan and its price are printed first. Without `--yes` it asks; outside a terminal it
 refuses rather than proceeding. The machine is registered the moment the provider returns an

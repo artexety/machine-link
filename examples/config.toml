@@ -15,12 +15,17 @@ email = "ada@example.com"
 # whose credentials it finds. Credentials are read from the environment or from
 # ~/.config/mlink/.env (chmod 600), never from this file:
 #   PRIME_API_KEY                          app.primeintellect.ai > settings > API keys
+#   VAST_API_KEY                           cloud.vast.ai > Account > Keys
 #   VERDA_CLIENT_ID, VERDA_CLIENT_SECRET   Verda console > Credentials > Cloud API Credentials
 # Your ssh key is registered at each of them by 'mlink init'; nothing else is needed.
 
 [providers.prime]
 # image = "ubuntu_22_cuda_12"         # default: the first image the offer lists
 # disk_gb = 256
+
+[providers.vast]
+# image = "vastai/base-image:@vastai-automatic-tag"   # any docker image; Vast adds sshd
+# disk_gb = 50                        # instances are reached as root through Vast's ssh proxy
 
 [providers.verda]
 image = "ubuntu-24.04-cuda-12.6"      # the plain ubuntu-24.04 image ships without a driver

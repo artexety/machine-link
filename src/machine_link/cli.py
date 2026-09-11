@@ -18,7 +18,7 @@ from rich.table import Table
 
 from . import __version__, config, providers, remote, sshconf
 from .config import Project, Repo, Settings
-from .models import STATIC, Machine, Offer, looks_like_target, valid_name
+from .models import STATIC, Filters, Machine, Offer, looks_like_target, valid_name
 from .registry import Registry, state_dir, unique_name
 from .ui import OPTS, Fail, err, out, report, say, step, warn
 
@@ -253,27 +253,6 @@ def init(
 # ---- renting ---------------------------------------------------------------------------------
 
 
-@dataclass
-class Filters:
-    gpu: str = ""
-    region: str = ""
-    max_price: float | None = None
-    min_count: int = 0
-    cpu: bool = False
-
-    def match(self, offer: Offer) -> bool:
-        return (
-            (self.cpu or offer.gpu_count > 0)
-            and self.gpu.lower() in offer.gpu.lower()
-            and self.region.lower() in offer.region.lower()
-            and offer.gpu_count >= self.min_count
-            and (
-                self.max_price is None
-                or (offer.price_hr is not None and offer.price_hr <= self.max_price)
-            )
-        )
-
-
 def _offers(state: State, only: str | None, spot: bool, filters: Filters) -> list[Offer]:
     """Every matching offer across the configured providers, available and cheapest first."""
     handlers = [providers.get(state.settings, only)] if only else providers.enabled(state.settings)
@@ -281,13 +260,14 @@ def _offers(state: State, only: str | None, spot: bool, filters: Filters) -> lis
         raise Fail(
             2,
             "no provider is configured, so there is nothing to rent",
-            f"add a [providers.prime] or [providers.verda] section to {state.settings.path}",
+            f"add a [providers.prime], [providers.vast] or [providers.verda] section to "
+            f"{state.settings.path}",
         )
     found: list[Offer] = []
     for provider in handlers:
         with step(f"offers from {provider.name}") as st:
             try:
-                quoted = [o for o in provider.offers(spot=spot) if filters.match(o)]
+                quoted = [o for o in provider.offers(filters, spot=spot) if filters.match(o)]
             except Fail as exc:
                 st.fail(exc.message)
                 continue
@@ -410,24 +390,22 @@ def launch(
 
 def _pick(state: State, arg: str | None, filters: Filters, only: str | None, spot: bool) -> Offer:
     """A row of the last listing, an offer id, or the cheapest available match."""
-    if arg:
-        filters.cpu = True  # an explicit id may name a CPU instance
-    if arg and arg.isdigit():
-        rows = json.loads(_rows_file().read_text()) if _rows_file().is_file() else []
-        if not 1 <= int(arg) <= len(rows):
-            raise Fail(
-                2,
-                f"row {arg} is not in the last 'mlink gpus' listing ({len(rows)} rows)",
-                "run 'mlink gpus' again and pick a row",
-            )
+    rows = json.loads(_rows_file().read_text()) if _rows_file().is_file() else []
+    if arg and arg.isdigit() and 1 <= int(arg) <= len(rows):
         return Offer(**rows[int(arg) - 1])
-    offers = [
-        o for o in _offers(state, only, spot, filters) if o.available and (not arg or o.id == arg)
-    ]
-    if not offers:
-        what = f"offer {arg!r}" if arg else "the filters"
-        raise Fail(2, f"no available offer matches {what}", "run 'mlink gpus' to see what exists")
-    return offers[0]
+    if arg:
+        filters.id, filters.cpu = arg, True  # an explicit id may name a CPU instance
+    offers = [o for o in _offers(state, only, spot, filters) if o.available]
+    if offers:
+        return offers[0]
+    if arg:
+        raise Fail(
+            2,
+            f"{arg!r} is neither a row of the last 'mlink gpus' listing ({len(rows)} rows) "
+            "nor an available offer id",
+            "run 'mlink gpus' again and pick a row",
+        )
+    raise Fail(2, "no available offer matches the filters", "run 'mlink gpus' to see what exists")
 
 
 def _wait_for_address(handler: providers.Provider, machine: Machine, timeout: int) -> Machine:

@@ -76,6 +76,31 @@ class Offer:
         return f"{self.provider} {self.label}{where} at {self.price}{spot}"
 
 
+@dataclass(slots=True)
+class Filters:
+    """What `gpus` and `launch` narrow offers by. A provider may apply it server-side too."""
+
+    gpu: str = ""
+    region: str = ""
+    max_price: float | None = None
+    min_count: int = 0
+    cpu: bool = False
+    id: str = ""
+
+    def match(self, offer: Offer) -> bool:
+        return (
+            (not self.id or offer.id == self.id)
+            and (self.cpu or offer.gpu_count > 0)
+            and self.gpu.lower() in offer.gpu.lower()
+            and self.region.lower() in offer.region.lower()
+            and offer.gpu_count >= self.min_count
+            and (
+                self.max_price is None
+                or (offer.price_hr is not None and offer.price_hr <= self.max_price)
+            )
+        )
+
+
 def looks_like_target(raw: str) -> bool:
     """Whether a word is an address rather than a machine name or a command."""
     if raw.startswith("ssh "):

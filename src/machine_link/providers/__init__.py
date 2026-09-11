@@ -14,7 +14,7 @@ import urllib.request
 from typing import Protocol
 
 from ..config import Settings
-from ..models import Machine, Offer
+from ..models import Filters, Machine, Offer
 from ..ui import OPTS, Fail, err
 
 
@@ -28,8 +28,9 @@ class Provider(Protocol):
     def machines(self) -> list[Machine]:
         """Every machine this account has, with an empty host while one is still provisioning."""
 
-    def offers(self, *, spot: bool = False) -> list[Offer]:
-        """What this provider will rent right now."""
+    def offers(self, filters: Filters, *, spot: bool = False) -> list[Offer]:
+        """What this provider will rent right now. `filters` may narrow the search server-side;
+        the caller applies it again, so ignoring it is correct too."""
 
     def launch(self, offer: Offer, name: str, *, spot: bool = False) -> Machine:
         """Create one machine. Only ever called after explicit confirmation."""
@@ -43,9 +44,10 @@ class Provider(Protocol):
 
 def kinds() -> dict[str, type]:
     from .prime import Prime
+    from .vast import Vast
     from .verda import Verda
 
-    return {Prime.name: Prime, Verda.name: Verda}
+    return {Prime.name: Prime, Vast.name: Vast, Verda.name: Verda}
 
 
 def enabled(settings: Settings) -> list[Provider]:
@@ -137,7 +139,7 @@ def http(
             text = response.read().decode()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace").strip()[:200]
-        if exc.code in (401, 403):
+        if exc.code in (401, 403) or '"auth_error"' in detail:  # Vast answers 404 to a bad key
             raise Fail(
                 2,
                 f"{who} rejected the credentials ({exc.code})",
