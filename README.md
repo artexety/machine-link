@@ -6,8 +6,8 @@
 One command to prepare a rented or local machine for work.
 
 <p align="center">
-  <a href="mlink-demo.gif"><img
-    src="mlink-demo.gif" width="100%"
+  <a href="https://raw.githubusercontent.com/artexety/machine-link/main/mlink-demo.gif"><img
+    src="https://raw.githubusercontent.com/artexety/machine-link/main/mlink-demo.gif" width="100%"
     alt="mlink gpus lists live offers from three providers, mlink launch rents row 1 and prepares it, mlink down refuses to destroy a machine holding unpushed commits"
   ></a>
 </p>
