@@ -5,6 +5,8 @@
 
 One command to prepare a rented or local machine for work.
 
+It rents from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and [Verda](https://verda.com), on demand from all three and spot or interruptible from Vast and Verda, or adopts any machine you can already ssh to. Nothing is installed on the box and there is no daemon: mlink wraps the system `ssh`, `scp` and `rsync`, and leaves the machine reachable by every tool that already speaks ssh.
+
 ```bash
 mlink gpus --gpu a100 --max-price 2    # what your providers rent right now, cheapest first
 mlink launch 1 --name trainer --up     # rent row 1, wait for it, clone your repo onto it
@@ -13,51 +15,17 @@ mlink pull                             # rsync results back
 mlink down                             # refuses on unpushed work, then destroys it
 ```
 
-## Highlights
-
-- Rents GPUs from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and
-  [Verda](https://verda.com), or adopts any machine you can already ssh to.
-- Wraps the system `ssh`, `scp` and `rsync`. No Python SSH library, no daemon, no agent on the box.
-- Every machine becomes a `Host` alias in `~/.ssh/config`, so `ssh trainer` works in git, rsync
-  and VS Code Remote-SSH.
-- Reaches GitHub from the machine only through the forwarded agent. No key or token is ever
-  copied anywhere.
-- Refuses to destroy a machine that has uncommitted or unpushed work.
-- Remembers which machine each project uses. Two projects, two boxes, no mix-ups.
-- Depends on `typer` and `rich` only. Python 3.11+, macOS and Linux.
-
-## Providers
-
-| Provider | Rent | Notes |
-|---|---|---|
-| [Prime Intellect](https://www.primeintellect.ai) | yes | on-demand pods |
-| [Vast.ai](https://vast.ai) | yes | on-demand and interruptible instances, reached through Vast's ssh proxy |
-| [Verda](https://verda.com) | yes | on-demand and spot instances |
-| Local | no | any machine with a fixed address, listed under `[[machines]]` |
-
-More providers are planned. Adding one is a single module; see [Contributing](#contributing).
-
-## Installation
+## Install
 
 ```bash
-uv tool install machine-link        # or: pipx install machine-link
-uvx --from machine-link mlink --help  # try it without installing
+uvx --from machine-link mlink --help   # try it without installing
+uv tool install machine-link           # or: pipx install machine-link
+mlink init                             # once per computer; rerun any time, it is the doctor too
 ```
 
-Then, once per computer:
+Python 3.11+ on macOS or Linux; `typer` and `rich` are the only dependencies.
 
-```bash
-mlink init
-```
-
-`init` checks that your ssh key exists and is loaded in the agent, that GitHub greets it,
-writes `~/.config/mlink/config.toml` and the managed block in `~/.ssh/config`, and registers
-your public key at every configured provider. Rerun it any time; it is also the doctor.
-Both `init` and `up` check that github.com accepts the key, so a GitHub account is assumed;
-other git hosts are not supported yet.
-
-Provider credentials go in the environment or in `~/.config/mlink/.env` (`chmod 600`); `init`
-turns on the providers it finds credentials for:
+`init` checks that your ssh key is loaded in the agent and that GitHub greets it, writes `~/.config/mlink/config.toml` and the managed block in `~/.ssh/config`, and registers your public key at every provider it finds credentials for. Those go in the environment or in `~/.config/mlink/.env` (`chmod 600`):
 
 ```
 PRIME_API_KEY=...            # app.primeintellect.ai > settings > API keys
@@ -66,27 +34,11 @@ VERDA_CLIENT_ID=...          # Verda console > Credentials > Cloud API Credentia
 VERDA_CLIENT_SECRET=...
 ```
 
-## Usage
+A GitHub account is assumed: both `init` and `up` check that github.com accepts the key. Other git hosts are not supported yet.
 
-### Rent a machine
+## What to deploy
 
-```bash
-mlink gpus                              # GPU rows only, every provider, cheapest first
-mlink gpus --spot                       # spot and interruptible prices: Verda, Vast
-mlink gpus --gpu h100 --gpu-count 8     # Vast answers 64 offers per search, so narrow it
-mlink launch 3 --name trainer           # row 3 of the last listing
-mlink launch 1A100.22V --region FIN-02  # or an offer id
-mlink launch --gpu a6000 --up           # or the cheapest match, then run 'up'
-```
-
-`launch` prints the offer and its price and asks before spending anything; with no terminal it
-refuses unless you pass `--yes`. The machine is registered the moment the provider returns an
-id, so a hiccup never leaves a billing machine you do not know about.
-
-### Prepare it
-
-Put an `mlink.toml` at your project's root. An empty file means "clone this repository's
-`origin` to `~/<name>` on the box". Add sections as needed:
+An `mlink.toml` at your project's root. An empty one means "clone this repository to `~/<name>` on the box"; add sections as you need them:
 
 ```toml
 [[repos]]
@@ -100,35 +52,13 @@ local = "~/runs"
 
 [provision]
 commands = ["sudo apt-get install -y rsync tmux"]
-script = ""                               # a local script, run on the box
 ```
 
-```bash
-mlink up                                # this project's machine
-mlink up ubuntu@203.0.113.7 --name lab  # or any address, registered on the spot
-```
-
-`up` waits for the machine, verifies agent forwarding and that GitHub answers from the box,
-sets your git identity, runs `[provision]`, then clones or fast-forwards the repos. It is
-idempotent.
-
-### Work, then let go
-
-```bash
-mlink ssh -- nvidia-smi        # one command, or an interactive session without arguments
-mlink pull                     # rsync the [[sync]] paths back
-mlink check                    # exit 5 if anything is uncommitted or unpushed
-mlink down                     # the same check, a confirmation, then the machine is destroyed
-```
-
-The check covers every repo `up` deployed to the machine, whichever directory you run it
-from. `down` treats a machine it cannot reach as unsafe. `--force` overrides the gate.
-When a machine goes, so do its alias, its host key and its control connection; `mlink forget`
-does the same without destroying anything.
+`mlink up` waits for the machine, verifies agent forwarding and that GitHub answers from the box, sets your git identity, runs `[provision]`, then clones or fast-forwards the repos. It is idempotent, so run it again whenever you change the file.
 
 ## How it works
 
-Each machine gets one stanza in the managed block of `~/.ssh/config`:
+Each machine becomes one stanza in the managed block of `~/.ssh/config`:
 
 ```
 Host trainer mlink-trainer
@@ -143,71 +73,18 @@ Host trainer mlink-trainer
     StrictHostKeyChecking accept-new
 ```
 
-Everything mlink does goes through that stanza, and so does anything else you point at the
-name. Agent forwarding is scoped to your machines. All of `up` shares one multiplexed
-connection. Host keys of rented machines live in mlink's own file and are deleted when the
-machine is destroyed, so a recycled address never triggers a host-key warning. Everything
-outside the block markers is left untouched; a one-time backup is kept at
-`~/.ssh/config.mlink.bak`.
+Everything mlink does goes through that stanza, and so does `ssh trainer` from git, rsync or VS Code Remote-SSH. Agent forwarding is scoped to your machines, and the box reaches GitHub only through it, so no key or token is ever copied anywhere. Host keys of rented machines live in mlink's own file and are deleted with the machine, so a recycled address never triggers a warning. Each project remembers its own machine, so two projects never mix up boxes, and `down` refuses to destroy one holding uncommitted or unpushed work. A machine it cannot reach counts as unsafe.
 
-The pointer from a project to its machine lives in `~/.local/state/mlink/machines.json`.
-Commands run outside a project fall back to the last machine used and say so. Inside a project,
-`down` never acts on another project's machine by fallback.
+Every command, flag and exit code is in [DOCS.md](https://github.com/artexety/machine-link/blob/main/DOCS.md); annotated copies of both config files are in [examples/](https://github.com/artexety/machine-link/tree/main/examples).
 
-## Configuration
+## Releases and Contributing
 
-`~/.config/mlink/config.toml`, written by `init`:
+There is no fixed release cadence; a release goes out when there is something worth shipping. Please let me know if you encounter a bug by [filing an issue](https://github.com/artexety/machine-link/issues).
 
-| Key | Default | Meaning |
-|---|---|---|
-| `ssh.identity_file` | `~/.ssh/id_ed25519` | The key; its `.pub` is registered at each provider |
-| `ssh.default_user` | `ubuntu` | Remote user when a target names none |
-| `ssh.connect_timeout` | `5` | Seconds per connection attempt |
-| `ssh.reachability_timeout` | `900` | Seconds to wait for a fresh machine to accept ssh; Vast's first boot takes 5-10 minutes |
-| `git.name`, `git.email` | | Set with `git config --global` on the box |
-| `providers.prime.image` | the offer's first image | Prime pod image |
-| `providers.vast.image` | `vastai/base-image:@vastai-automatic-tag` | Docker image; Vast adds sshd to it |
-| `providers.vast.disk_gb` | `50` | Disk of a Vast instance |
-| `providers.verda.image` | `ubuntu-24.04-cuda-12.6` | Verda image |
-| `providers.verda.location` | `FIN-01` | Used when an offer names no location |
-| `machines[].name`, `.host`, `.user`, `.port` | | Machines with a fixed address and no API |
+All contributions are appreciated. If you are contributing a bug fix, please do so without any further discussion. If you plan to add a provider, or to change how machines are prepared, please open an issue first and discuss it. A pull request sent without that might end up rejected, because the core may be heading somewhere you are not aware of.
 
-A provider is enabled by the presence of its `[providers.<name>]` section; `init` writes the
-sections for the providers whose credentials it finds and leaves the others commented out.
-Annotated copies of both files are in [examples/](https://github.com/artexety/machine-link/tree/main/examples); every command and
-flag is in [DOCS.md](https://github.com/artexety/machine-link/blob/main/DOCS.md).
-
-## Exit codes
-
-| Code | Meaning |
-|---|---|
-| 0 | success |
-| 1 | unexpected error, or a remote command failed |
-| 2 | local precondition or config problem; the fix is printed |
-| 3 | machine unreachable, or it rejected the key |
-| 4 | agent-forwarding chain broken |
-| 5 | dirty or unpushed work |
-
-## Development
-
-```bash
-uv sync --all-groups
-uv run ruff check && uv run ruff format --check && uv run pytest
-```
-
-Tests never reach the network or a real ssh. Provider fixtures are payloads recorded from the
-live APIs, and an autouse fixture redirects `$HOME` so no test can touch your own files.
-
-To release: tag `vX.Y.Z` and push the tag. The version comes from the tag; CI publishes to PyPI
-and creates the GitHub release.
-
-## Contributing
-
-Pull requests are welcome, providers especially. A provider is one module in
-`src/machine_link/providers/` with five methods (`machines`, `offers`, `launch`, `terminate`,
-`ensure_key`) and a section name in the config; `verda.py` is a complete example. Add tests
-against recorded API payloads and run the checks above before opening a pull request.
+To learn more about making a contribution, see [CONTRIBUTING.md](https://github.com/artexety/machine-link/blob/main/CONTRIBUTING.md), which also covers the development setup and how a release is cut.
 
 ## License
 
-[MIT](https://github.com/artexety/machine-link/blob/main/LICENSE)
+machine-link has an MIT license, as found in the [LICENSE](https://github.com/artexety/machine-link/blob/main/LICENSE) file.
