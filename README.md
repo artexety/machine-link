@@ -198,8 +198,8 @@ uv run ruff check && uv run ruff format --check && uv run pytest
 Tests never reach the network or a real ssh. Provider fixtures are payloads recorded from the
 live APIs, and an autouse fixture redirects `$HOME` so no test can touch your own files.
 
-To release: set `__version__`, tag `vX.Y.Z` and push the tag. CI publishes to PyPI and creates
-the GitHub release.
+To release: tag `vX.Y.Z` and push the tag. The version comes from the tag; CI publishes to PyPI
+and creates the GitHub release.
 
 ## Contributing
 

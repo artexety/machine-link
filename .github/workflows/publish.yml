@@ -1,9 +1,9 @@
 name: publish
 
 # Publishes to PyPI through trusted publishing when a version tag is pushed, then
-# creates the GitHub release with the built files. The tag must match the package
-# version, and the PyPI project must list this repository, workflow and environment
-# as its publisher.
+# creates the GitHub release with the built files. The package version is the tag,
+# and the PyPI project must list this repository, workflow and environment as its
+# publisher.
 
 on:
   push:
@@ -14,12 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the version is read from the tag
       - uses: astral-sh/setup-uv@v5
-      - name: tag matches the package version
-        run: |
-          version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/machine_link/__init__.py)"
-          test "v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} but package is ${version}"; exit 1; }
       - run: uv build
+      - name: the build carries the tag's version
+        run: test -f "dist/machine_link-${GITHUB_REF_NAME#v}-py3-none-any.whl"
       - uses: actions/upload-artifact@v4
         with:
           name: dist

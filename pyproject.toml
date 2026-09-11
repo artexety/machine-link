@@ -37,11 +37,11 @@ mlink = "machine_link.cli:main"
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "src/machine_link/__init__.py"
+source = "vcs"
 
 [tool.hatch.build.targets.sdist]
 exclude = ["/tmp", "/.github"]
