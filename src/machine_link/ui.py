@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 
 from rich.console import Console
@@ -60,16 +60,30 @@ class Step:
         self.ok, self.note = False, note
 
 
+_spinning = False
+
+
 @contextmanager
-def step(label: str) -> Iterator[Step]:
-    """One checklist line: a tick or a cross, the label, a note, and the elapsed time."""
+def step(label: str, *, spin: bool = True) -> Iterator[Step]:
+    """One checklist line: a tick or a cross, the label, a note, and the elapsed time.
+
+    On a terminal a spinner shows the step is alive while it runs, so a minutes-long wait is
+    never a blank screen. Under -v the commands themselves are the sign of life, and a step
+    that needs the terminal for itself (an ssh-add passphrase prompt) passes spin=False.
+    """
+    global _spinning
     st, started = Step(), time.monotonic()
+    live = spin and err.is_terminal and not OPTS.verbose and not _spinning
+    _spinning = _spinning or live
     try:
-        yield st
+        with err.status(Text(label)) if live else nullcontext():
+            yield st
     except BaseException:
         st.ok = False
         raise
     finally:
+        if live:
+            _spinning = False
         line = Text.assemble(("✓ ", "green") if st.ok else ("✗ ", "red"), label)
         if st.note:
             line.append(f"  {st.note}", style="dim")

@@ -58,6 +58,18 @@ def rented(settings, project):
     return registry
 
 
+# ---- help -------------------------------------------------------------------------------------
+
+
+def test_help_lists_the_commands_in_lifecycle_order_without_truncating():
+    result = runner.invoke(cli.app, ["--help"])
+    assert result.exit_code == 0
+    listing = result.output.split("Commands:")[1].splitlines()
+    names = [line.split()[0] for line in listing if line.startswith("  ") and line.strip()]
+    assert names[:8] == ["init", "gpus", "launch", "up", "ssh", "pull", "check", "down"]
+    assert not any(line.rstrip().endswith("...") for line in listing)
+
+
 # ---- init -------------------------------------------------------------------------------------
 
 

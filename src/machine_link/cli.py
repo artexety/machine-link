@@ -33,19 +33,33 @@ app = typer.Typer(
 
 TargetArg = Annotated[
     str | None,
-    typer.Argument(help="Machine name, user@host:port, or a pasted ssh line.", show_default=False),
+    typer.Argument(
+        metavar="TARGET",
+        help="A machine name, user@host:port, or a pasted ssh line.",
+        show_default=False,
+    ),
 ]
 NameOpt = Annotated[
-    str | None, typer.Option("--name", help="Register the machine under this name.")
+    str | None,
+    typer.Option("--name", metavar="NAME", help="Register the machine under this name."),
 ]
 YesOpt = Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation.")]
 DryRunOpt = Annotated[bool, typer.Option("--dry-run", help="Show the plan and call no provider.")]
 JsonOpt = Annotated[bool, typer.Option("--json", help="Machine-readable output.")]
-GpuOpt = Annotated[str, typer.Option("--gpu", help="GPU name contains this (a100, 4090).")]
-RegionOpt = Annotated[str, typer.Option("--region", help="Region contains this.")]
-MaxPriceOpt = Annotated[float | None, typer.Option("--max-price", help="At most this many $/hr.")]
-CountOpt = Annotated[int, typer.Option("--gpu-count", help="At least this many GPUs.")]
-ProviderOpt = Annotated[str | None, typer.Option("--provider", help="Only this provider.")]
+GpuOpt = Annotated[
+    str, typer.Option("--gpu", metavar="TEXT", help="GPU name contains this (a100, 4090).")
+]
+RegionOpt = Annotated[str, typer.Option("--region", metavar="TEXT", help="Region contains this.")]
+MaxPriceOpt = Annotated[
+    float | None, typer.Option("--max-price", metavar="N", help="At most this many $/hr.")
+]
+CountOpt = Annotated[
+    int,
+    typer.Option("--gpu-count", metavar="N", help="At least this many GPUs.", show_default=False),
+]
+ProviderOpt = Annotated[
+    str | None, typer.Option("--provider", metavar="NAME", help="Only this provider.")
+]
 SpotOpt = Annotated[
     bool, typer.Option("--spot", help="Spot (interruptible) pricing where offered.")
 ]
@@ -63,7 +77,8 @@ def main_options(
         bool, typer.Option("--verbose", "-v", help="Show every command and its output.")
     ] = False,
     config_path: Annotated[
-        str | None, typer.Option("--config", help="Machine config path.", show_default=False)
+        str | None,
+        typer.Option("--config", metavar="PATH", help="Machine config path.", show_default=False),
     ] = None,
     version: Annotated[
         bool, typer.Option("--version", callback=_version, is_eager=True, help="Print the version.")
@@ -152,7 +167,12 @@ def init(
         bool, typer.Option("--yes", "-y", help="Accept the defaults; do not prompt.")
     ] = False,
 ) -> None:
-    """Set this computer up: key, agent, GitHub, config, ssh block, provider keys."""
+    """Set this computer up.
+
+    Checks the ssh key, the agent and GitHub, writes the config and the managed block in
+    ~/.ssh/config, and registers the public key at every provider whose credentials are set.
+    Rerun it any time; it is also the doctor.
+    """
     path = config.settings_path(OPTS.config)
     fresh = not path.is_file()
     settings = Settings(path=path) if fresh else config.load_settings(OPTS.config)
@@ -182,7 +202,7 @@ def init(
                 )
             remote.run(["ssh-keygen", "-t", "ed25519", "-f", str(settings.ssh.key), "-N", ""])
             st.note = "generated"
-    with step("key loaded in ssh-agent"):
+    with step("key loaded in ssh-agent", spin=False):  # ssh-add may ask for a passphrase
         if not remote.agent_has_key(settings.ssh.pubkey):
             remote.add_to_agent(settings.ssh.key)
             if not remote.agent_has_key(settings.ssh.pubkey):
@@ -230,225 +250,7 @@ def init(
     say(f"next: cd into a project, touch mlink.toml, then {rent}'mlink up <target>'")
 
 
-# ---- working on a machine ---------------------------------------------------------------------
-
-
-@app.command()
-def up(
-    target: TargetArg = None,
-    name: NameOpt = None,
-    skip_provision: Annotated[
-        bool, typer.Option("--skip-provision", help="Skip [provision].")
-    ] = False,
-) -> None:
-    """Prepare a machine: wait for it, verify the chain, provision it, clone the repos."""
-    state = _load()
-    started = time.monotonic()
-    machine = _machine(state, target, name=name)
-    if state.project.path:
-        say(f"project {state.project.path}")
-    else:
-        say("no mlink.toml above the working directory; nothing will be deployed")
-    _link(state)
-    with step(f"reachable {machine.user}@{machine.host}:{machine.port}"):
-        remote.wait_reachable(machine, state.settings, _hint(state, machine))
-    remote.check_chain(machine)
-    remote.set_git_identity(machine, state.settings.git)
-    if state.project.sync and not remote.ssh(machine, "command -v rsync").ok:
-        warn(
-            "the machine has no rsync, so 'mlink pull' cannot copy results back; "
-            "add 'sudo apt-get install -y rsync' to [provision] commands"
-        )
-    if not skip_provision:
-        remote.provision(machine, state.project)
-    for repo in state.project.repos:
-        remote.sync_repo(machine, repo)
-    machine.repos = sorted({*machine.repos, *(repo.dest for repo in state.project.repos)})
-    state.registry.add(machine, state.project.dir)
-    state.registry.save()
-
-    grid = Table.grid(padding=(0, 2))
-    grid.add_row("machine", str(machine))
-    grid.add_row("elapsed", f"{time.monotonic() - started:.1f}s")
-    for repo in state.project.repos:
-        repo_state = remote.repo_state(machine, repo)
-        grid.add_row(repo.name, f"{repo_state.branch} @ {repo_state.head}")
-    grid.add_row("next", f"mlink ssh {machine.name}  /  ssh {sshconf.alias_for(machine)}")
-    out.print(Panel(grid, title="machine-link", expand=False))
-
-
-@app.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
-def ssh(ctx: typer.Context, target: TargetArg = None) -> None:
-    """Open a session, or run one command: mlink ssh [TARGET] [-- COMMAND...]."""
-    state = _load()
-    words = ([target] if target else []) + list(ctx.args)
-    if "--" in sys.argv:  # explicit: everything after -- is the command, whatever it looks like
-        command = sys.argv[sys.argv.index("--") + 1 :]
-        target = words[0] if len(words) > len(command) else None
-    elif words and (words[0] in state.registry.machines or looks_like_target(words[0])):
-        target, command = words[0], words[1:]
-    else:
-        target, command = None, words
-    machine = _machine(state, target)
-    argv = ["ssh", machine.alias, *command]
-    if OPTS.verbose:
-        err.print(f"$ {shlex.join(argv)}", style="dim", markup=False)
-    os.execvp("ssh", argv)
-
-
-@app.command()
-def pull(
-    target: TargetArg = None,
-    delete: Annotated[
-        bool, typer.Option("--delete", help="Delete local files gone remotely.")
-    ] = False,
-) -> None:
-    """Rsync the [[sync]] paths back from the machine."""
-    state = _load()
-    if not state.project.sync:
-        raise Fail(2, "no [[sync]] entries in mlink.toml", "add remote/local pairs, then retry")
-    machine = _machine(state, target)
-    failed = 0
-    for mapping in state.project.sync:
-        with step(f"pull {mapping.remote}") as st:
-            result = remote.pull(machine, mapping, delete=delete)
-            if result.ok:
-                st.note = str(Path(mapping.local).expanduser())
-                continue
-            failed += 1
-            st.fail(remote.short(result.text) or "rsync failed")
-            if "command not found" in result.text or "status 127" in result.text:
-                raise Fail(
-                    1,
-                    "the machine has no rsync",
-                    "add 'sudo apt-get install -y rsync' to [provision] commands, "
-                    "then rerun 'mlink up'",
-                )
-    if failed == len(state.project.sync):
-        raise Fail(1, "every sync mapping failed", "check the remote paths over 'mlink ssh'")
-
-
-@app.command()
-def check(target: TargetArg = None, as_json: JsonOpt = False) -> None:
-    """Exit 5 if any repo on the machine has uncommitted or unpushed work."""
-    state = _load()
-    machine = _machine(state, target)
-    repos = _repos(state, machine)
-    if not repos:
-        raise Fail(
-            2,
-            f"no [[repos]] here and nothing was deployed to {machine.name} by 'mlink up'",
-            "run it inside a project",
-        )
-    states = [remote.repo_state(machine, repo) for repo in repos]
-    if as_json:
-        out.print(json.dumps([asdict(s) for s in states], indent=2))
-    else:
-        table = Table(box=None, pad_edge=False)
-        for column in ("repo", "branch", "dirty", "unpushed"):
-            table.add_column(column)
-        for s in states:
-            table.add_row(s.name, s.branch, "yes" if s.dirty else "no", s.unpushed)
-        out.print(table)
-    if not all(s.clean for s in states):
-        raise typer.Exit(5)
-
-
-# ---- managing machines ------------------------------------------------------------------------
-
-
-@app.command()
-def ls(
-    refresh: Annotated[
-        bool, typer.Option("--refresh", "-r", help="Ask every configured provider first.")
-    ] = False,
-    as_json: JsonOpt = False,
-) -> None:
-    """The machines this client knows about; * marks the one this project uses."""
-    state = _load()
-    if refresh:
-        _refresh(state)
-    machines = state.registry.listed()
-    marked = state.registry.pinned(state.project.dir) or state.registry.machines.get(
-        state.registry.current
-    )
-    if as_json:
-        out.print(json.dumps([{**asdict(m), "current": m is marked} for m in machines], indent=2))
-        return
-    if not machines:
-        say("no machines yet: 'mlink up <target>', 'mlink launch', or [[machines]] in the config")
-        return
-    table = Table(box=None, pad_edge=False)
-    for column in ("", "name", "provider", "user@host", "port", "gpu", "status"):
-        table.add_column(column)
-    for m in machines:
-        table.add_row(
-            "*" if m is marked else "",
-            m.name,
-            m.provider,
-            f"{m.user}@{m.host or '?'}",
-            str(m.port),
-            m.gpu,
-            m.status,
-        )
-    out.print(table)
-
-
-def _refresh(state: State) -> None:
-    """Ask every provider what it has. One being down must not hide the others."""
-    found: dict[str, list[Machine]] = {}
-    for provider in providers.enabled(state.settings):
-        with step(f"query {provider.name}") as st:
-            try:
-                found[provider.name] = provider.machines()
-                st.note = f"{len(found[provider.name])} machines"
-            except Fail as exc:
-                st.fail(exc.message)
-    for gone in state.registry.refresh(found):
-        sshconf.forget_host(gone)
-    state.registry.save()
-    _link(state)
-
-
-@app.command()
-def use(name: Annotated[str, typer.Argument(help="Machine to point this project at.")]) -> None:
-    """Point this project (or, outside one, the default) at a machine."""
-    state = _load()
-    machine = state.registry.machines.get(name)
-    if machine is None:
-        raise Fail(2, f"no machine named {name!r}", "run: mlink ls")
-    state.registry.add(machine, state.project.dir)
-    state.registry.save()
-    say(f"{machine} is now current" + (f" for {state.project.dir}" if state.project.dir else ""))
-
-
-@app.command()
-def link() -> None:
-    """Rewrite the managed block in ~/.ssh/config from the registry."""
-    state = _load()
-    with step("managed block in ~/.ssh/config") as st:
-        changed = _link(state)
-        st.note = f"{len(state.registry.machines)} machines" + (
-            "" if changed else ", already current"
-        )
-    for machine in state.registry.listed():
-        say(f"  ssh {sshconf.alias_for(machine)}")
-
-
-@app.command()
-def forget(name: Annotated[str, typer.Argument(help="Machine to drop.")]) -> None:
-    """Drop a machine from the registry, ~/.ssh/config and known_hosts without destroying it."""
-    state = _load()
-    machine = state.registry.remove(name)
-    sshconf.forget_host(machine)
-    state.registry.save()
-    _link(state)
-    say(f"forgot {machine}")
-    if any(m.name == name for m in state.settings.machines):
-        say(f"it comes from [[machines]] in {state.settings.path}; remove it there too")
-
-
-# ---- renting and destroying -------------------------------------------------------------------
+# ---- renting ---------------------------------------------------------------------------------
 
 
 @dataclass
@@ -507,10 +309,13 @@ def gpus(
     provider: ProviderOpt = None,
     spot: SpotOpt = False,
     cpu: Annotated[bool, typer.Option("--cpu", help="Include CPU-only instances.")] = False,
-    limit: Annotated[int, typer.Option("--limit", help="Rows to show.")] = 20,
+    limit: Annotated[int, typer.Option("--limit", metavar="N", help="Rows to show.")] = 20,
     as_json: JsonOpt = False,
 ) -> None:
-    """What your providers will rent right now, cheapest first. Rows are numbered for launch."""
+    """What your providers rent right now.
+
+    Cheapest first, with a row number for launch. CPU-only instances are hidden unless --cpu.
+    """
     state = _load()
     found = _offers(state, provider, spot, Filters(gpu, region, max_price, gpu_count, cpu))
     shown = found[:limit]
@@ -553,7 +358,11 @@ def gpus(
 def launch(
     offer: Annotated[
         str | None,
-        typer.Argument(help="A row number from 'mlink gpus', or an offer id.", show_default=False),
+        typer.Argument(
+            metavar="ROW|ID",
+            help="A row number from 'mlink gpus', or an offer id.",
+            show_default=False,
+        ),
     ] = None,
     name: NameOpt = None,
     gpu: GpuOpt = "",
@@ -566,7 +375,11 @@ def launch(
     yes: YesOpt = False,
     dry_run: DryRunOpt = False,
 ) -> None:
-    """Create a machine from an offer, register it, write its ssh alias."""
+    """Rent a machine from an offer.
+
+    A row of the last 'mlink gpus', an offer id, or the cheapest match of the filters. The
+    machine is registered and gets its ssh alias the moment the provider returns an id.
+    """
     state = _load()
     chosen = _pick(state, offer, Filters(gpu, region, max_price, gpu_count), provider, spot)
     handler = providers.get(state.settings, chosen.provider)
@@ -634,6 +447,145 @@ def _wait_for_address(handler: providers.Provider, machine: Machine, timeout: in
     )
 
 
+# ---- working on a machine ---------------------------------------------------------------------
+
+
+@app.command()
+def up(
+    target: TargetArg = None,
+    name: NameOpt = None,
+    skip_provision: Annotated[
+        bool, typer.Option("--skip-provision", help="Skip [provision].")
+    ] = False,
+) -> None:
+    """Prepare a machine and clone the repos.
+
+    Waits for it, verifies agent forwarding and GitHub from the machine, sets the git identity,
+    runs [provision], then clones or fast-forwards each [[repos]] entry. Idempotent.
+    """
+    state = _load()
+    started = time.monotonic()
+    machine = _machine(state, target, name=name)
+    if state.project.path:
+        say(f"project {state.project.path}")
+    else:
+        say("no mlink.toml above the working directory; nothing will be deployed")
+    _link(state)
+    with step(f"reachable {machine.user}@{machine.host}:{machine.port}"):
+        remote.wait_reachable(machine, state.settings, _hint(state, machine))
+    remote.check_chain(machine)
+    remote.set_git_identity(machine, state.settings.git)
+    if state.project.sync and not remote.ssh(machine, "command -v rsync").ok:
+        warn(
+            "the machine has no rsync, so 'mlink pull' cannot copy results back; "
+            "add 'sudo apt-get install -y rsync' to [provision] commands"
+        )
+    if not skip_provision:
+        remote.provision(machine, state.project)
+    for repo in state.project.repos:
+        remote.sync_repo(machine, repo)
+    machine.repos = sorted({*machine.repos, *(repo.dest for repo in state.project.repos)})
+    state.registry.add(machine, state.project.dir)
+    state.registry.save()
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_row("machine", str(machine))
+    grid.add_row("elapsed", f"{time.monotonic() - started:.1f}s")
+    for repo in state.project.repos:
+        repo_state = remote.repo_state(machine, repo)
+        grid.add_row(repo.name, f"{repo_state.branch} @ {repo_state.head}")
+    grid.add_row("next", f"mlink ssh {machine.name}  /  ssh {sshconf.alias_for(machine)}")
+    out.print(Panel(grid, title="machine-link", expand=False))
+
+
+@app.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+def ssh(ctx: typer.Context, target: TargetArg = None) -> None:
+    """Open a session, or run one command.
+
+    mlink ssh [TARGET] [-- COMMAND...]. Without --, the first word is the machine when it is a
+    known name or an address; otherwise it starts the command.
+    """
+    state = _load()
+    words = ([target] if target else []) + list(ctx.args)
+    if "--" in sys.argv:  # explicit: everything after -- is the command, whatever it looks like
+        command = sys.argv[sys.argv.index("--") + 1 :]
+        target = words[0] if len(words) > len(command) else None
+    elif words and (words[0] in state.registry.machines or looks_like_target(words[0])):
+        target, command = words[0], words[1:]
+    else:
+        target, command = None, words
+    machine = _machine(state, target)
+    argv = ["ssh", machine.alias, *command]
+    if OPTS.verbose:
+        err.print(f"$ {shlex.join(argv)}", style="dim", markup=False)
+    os.execvp("ssh", argv)
+
+
+@app.command()
+def pull(
+    target: TargetArg = None,
+    delete: Annotated[
+        bool, typer.Option("--delete", help="Delete local files gone remotely.")
+    ] = False,
+) -> None:
+    """Rsync the [[sync]] paths back."""
+    state = _load()
+    if not state.project.sync:
+        raise Fail(2, "no [[sync]] entries in mlink.toml", "add remote/local pairs, then retry")
+    machine = _machine(state, target)
+    failed = 0
+    for mapping in state.project.sync:
+        with step(f"pull {mapping.remote}") as st:
+            result = remote.pull(machine, mapping, delete=delete)
+            if result.ok:
+                st.note = str(Path(mapping.local).expanduser())
+                continue
+            failed += 1
+            st.fail(remote.short(result.text) or "rsync failed")
+            if "command not found" in result.text or "status 127" in result.text:
+                raise Fail(
+                    1,
+                    "the machine has no rsync",
+                    "add 'sudo apt-get install -y rsync' to [provision] commands, "
+                    "then rerun 'mlink up'",
+                )
+    if failed == len(state.project.sync):
+        raise Fail(1, "every sync mapping failed", "check the remote paths over 'mlink ssh'")
+
+
+@app.command()
+def check(target: TargetArg = None, as_json: JsonOpt = False) -> None:
+    """Exit 5 on uncommitted or unpushed work.
+
+    Inspects every repo 'up' deployed to the machine and this project's [[repos]]. This is the
+    gate 'down' runs.
+    """
+    state = _load()
+    machine = _machine(state, target)
+    repos = _repos(state, machine)
+    if not repos:
+        raise Fail(
+            2,
+            f"no [[repos]] here and nothing was deployed to {machine.name} by 'mlink up'",
+            "run it inside a project",
+        )
+    states = [remote.repo_state(machine, repo) for repo in repos]
+    if as_json:
+        out.print(json.dumps([asdict(s) for s in states], indent=2))
+    else:
+        table = Table(box=None, pad_edge=False)
+        for column in ("repo", "branch", "dirty", "unpushed"):
+            table.add_column(column)
+        for s in states:
+            table.add_row(s.name, s.branch, "yes" if s.dirty else "no", s.unpushed)
+        out.print(table)
+    if not all(s.clean for s in states):
+        raise typer.Exit(5)
+
+
+# ---- letting go -------------------------------------------------------------------------------
+
+
 @app.command()
 def down(
     target: TargetArg = None,
@@ -646,7 +598,11 @@ def down(
     ] = False,
     dry_run: DryRunOpt = False,
 ) -> None:
-    """Check for unpushed work, confirm, destroy the machine at its provider, forget its address."""
+    """Destroy a machine, after a safety check.
+
+    Refuses on uncommitted or unpushed work, asks, terminates the machine at its provider, then
+    forgets its alias, host key and address.
+    """
     state = _load()
     # Inside a project only that project's machine (or a named one) may be destroyed.
     machine = state.registry.resolve(
@@ -720,6 +676,116 @@ def _safe(state: State, machine: Machine) -> bool:
             what = "uncommitted changes" if s.dirty else f"{s.unpushed} unpushed commits"
             warn(f"{s.name}: {what}")
     return all(s.clean for s in states)
+
+
+# ---- managing machines ------------------------------------------------------------------------
+
+
+@app.command()
+def ls(
+    refresh: Annotated[
+        bool, typer.Option("--refresh", "-r", help="Ask every configured provider first.")
+    ] = False,
+    as_json: JsonOpt = False,
+) -> None:
+    """The machines this client knows about.
+
+    * marks the one this project uses. --refresh asks every provider first and drops the
+    machines that are gone.
+    """
+    state = _load()
+    if refresh:
+        _refresh(state)
+    machines = state.registry.listed()
+    marked = state.registry.pinned(state.project.dir) or state.registry.machines.get(
+        state.registry.current
+    )
+    if as_json:
+        out.print(json.dumps([{**asdict(m), "current": m is marked} for m in machines], indent=2))
+        return
+    if not machines:
+        say("no machines yet: 'mlink up <target>', 'mlink launch', or [[machines]] in the config")
+        return
+    table = Table(box=None, pad_edge=False)
+    for column in ("", "name", "provider", "user@host", "port", "gpu", "status"):
+        table.add_column(column)
+    for m in machines:
+        table.add_row(
+            "*" if m is marked else "",
+            m.name,
+            m.provider,
+            f"{m.user}@{m.host or '?'}",
+            str(m.port),
+            m.gpu,
+            m.status,
+        )
+    out.print(table)
+
+
+def _refresh(state: State) -> None:
+    """Ask every provider what it has. One being down must not hide the others."""
+    found: dict[str, list[Machine]] = {}
+    for provider in providers.enabled(state.settings):
+        with step(f"query {provider.name}") as st:
+            try:
+                found[provider.name] = provider.machines()
+                st.note = f"{len(found[provider.name])} machines"
+            except Fail as exc:
+                st.fail(exc.message)
+    for gone in state.registry.refresh(found):
+        sshconf.forget_host(gone)
+    state.registry.save()
+    _link(state)
+
+
+@app.command()
+def use(
+    name: Annotated[
+        str, typer.Argument(metavar="NAME", help="The machine to point this project at.")
+    ],
+) -> None:
+    """Point this project at a machine.
+
+    Outside a project, sets the default.
+    """
+    state = _load()
+    machine = state.registry.machines.get(name)
+    if machine is None:
+        raise Fail(2, f"no machine named {name!r}", "run: mlink ls")
+    state.registry.add(machine, state.project.dir)
+    state.registry.save()
+    say(f"{machine} is now current" + (f" for {state.project.dir}" if state.project.dir else ""))
+
+
+@app.command()
+def forget(
+    name: Annotated[str, typer.Argument(metavar="NAME", help="The machine to drop.")],
+) -> None:
+    """Drop a machine without destroying it.
+
+    Removes it from the registry, ~/.ssh/config and known_hosts.
+    """
+    state = _load()
+    machine = state.registry.remove(name)
+    sshconf.forget_host(machine)
+    state.registry.save()
+    _link(state)
+    say(f"forgot {machine}")
+    if any(m.name == name for m in state.settings.machines):
+        say(f"it comes from [[machines]] in {state.settings.path}; remove it there too")
+
+
+@app.command()
+def link() -> None:
+    """Rewrite the managed block in ~/.ssh/config."""
+    state = _load()
+    with step("managed block in ~/.ssh/config") as st:
+        changed = _link(state)
+        st.note = f"{len(state.registry.machines)} machines" + (
+            "" if changed else ", already current"
+        )
+    for machine in state.registry.listed():
+        say(f"  ssh {sshconf.alias_for(machine)}")
 
 
 def main() -> None:
