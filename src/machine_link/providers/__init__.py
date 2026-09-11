@@ -20,6 +20,8 @@ from ..ui import OPTS, Fail, err
 
 class Provider(Protocol):
     name: str
+    #: The environment variables that hold the credentials.
+    secrets: tuple[str, ...]
     #: What to do when a machine rejects the key.
     key_hint: str
 
@@ -39,23 +41,34 @@ class Provider(Protocol):
         """The provider's id for the local public key, uploading it first when it is missing."""
 
 
-def enabled(settings: Settings) -> list[Provider]:
-    """Every configured provider, in config order."""
+def kinds() -> dict[str, type]:
     from .prime import Prime
     from .verda import Verda
 
-    kinds = {Prime.name: Prime, Verda.name: Verda}
+    return {Prime.name: Prime, Verda.name: Verda}
+
+
+def enabled(settings: Settings) -> list[Provider]:
+    """Every configured provider, in config order."""
+    known = kinds()
     for name in settings.providers:
-        if name not in kinds:
+        if name not in known:
             raise Fail(
                 2,
                 f"unknown provider section [providers.{name}]",
-                f"known providers: {', '.join(kinds)}",
+                f"known providers: {', '.join(known)}",
             )
-    return [kinds[name](settings) for name in settings.providers]
+    return [known[name](settings) for name in settings.providers]
+
+
+def with_credentials() -> list[str]:
+    """The providers whose credentials are in the environment: what a fresh `init` turns on."""
+    return [n for n, kind in kinds().items() if all(os.environ.get(v) for v in kind.secrets)]
 
 
 def get(settings: Settings, name: str) -> Provider:
+    if name not in kinds():
+        raise Fail(2, f"unknown provider {name!r}", f"known providers: {', '.join(kinds())}")
     for provider in enabled(settings):
         if provider.name == name:
             return provider

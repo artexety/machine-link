@@ -22,12 +22,14 @@ Prepares this computer, and diagnoses it when rerun:
 1. the ssh key exists (`--generate` creates an ed25519 one)
 2. it is loaded in the agent (`ssh-add`, with the macOS keychain where available)
 3. GitHub greets it (the public key is printed if not, so you can add it)
-4. `~/.config/mlink/config.toml` exists (prompts for the values, `--yes` takes the defaults)
+4. `~/.config/mlink/config.toml` exists (prompts for the values, `--yes` takes the defaults;
+   the providers whose credentials are set are turned on)
 5. the managed block in `~/.ssh/config` is current
 6. the public key is registered at every configured provider, uploading it when missing
 7. `rsync` is on PATH
 
-Nothing is ever overwritten: an existing config is left as it is.
+Nothing is ever overwritten: an existing config is left as it is. Without a terminal, `--yes`
+is required.
 
 ---
 
@@ -49,7 +51,8 @@ Everything your configured providers will rent right now, cheapest first, with a
 | `--json` | Machine-readable, with each row's id and provider record |
 
 The rows are remembered, so a row number can stand in for an id in `launch`. Prime's region
-column is the data center (`us-central-1`); Verda's is the location (`FIN-01`).
+column is the data center (`us-central-1`); Verda's is the location (`FIN-01`). With no provider
+configured, or an unknown `--provider`, it exits 2 and says what to add.
 
 ### `mlink launch [ROW | ID]`
 Creates a machine, registers it, writes its ssh alias.

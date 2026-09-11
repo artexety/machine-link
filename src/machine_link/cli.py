@@ -157,6 +157,14 @@ def init(
     fresh = not path.is_file()
     settings = Settings(path=path) if fresh else config.load_settings(OPTS.config)
     config.load_env(path.parent / ".env")
+    if fresh:
+        settings.providers = {name: {} for name in providers.with_credentials()}
+        if not yes and not sys.stdin.isatty():
+            raise Fail(
+                2,
+                "there is no terminal to answer the setup questions on",
+                "rerun with --yes to take the defaults",
+            )
     if fresh and not yes:
         settings.ssh.identity_file = typer.prompt("ssh identity file", settings.ssh.identity_file)
         settings.ssh.default_user = typer.prompt("default remote user", settings.ssh.default_user)
@@ -194,7 +202,8 @@ def init(
     with step(f"config {path}") as st:
         if fresh:
             config.write_settings(settings)
-        st.note = "written" if fresh else "present"
+        on = ", ".join(settings.providers) or "none"
+        st.note = f"{'written' if fresh else 'present'}; providers: {on}"
 
     state = State(settings, Project(), Registry())
     for machine in settings.machines:
@@ -212,7 +221,13 @@ def init(
     with step("rsync on PATH") as st:
         if not shutil.which("rsync"):
             st.fail("missing; 'mlink pull' needs it")
-    say("next: cd into a project, touch mlink.toml, then 'mlink gpus' or 'mlink up <target>'")
+    if not settings.providers:
+        say(
+            "no provider credentials found; to rent machines, put them in "
+            f"{path.parent / '.env'} and uncomment the provider in {path}"
+        )
+    rent = "'mlink gpus' or " if settings.providers else ""
+    say(f"next: cd into a project, touch mlink.toml, then {rent}'mlink up <target>'")
 
 
 # ---- working on a machine ---------------------------------------------------------------------
@@ -459,10 +474,15 @@ class Filters:
 
 def _offers(state: State, only: str | None, spot: bool, filters: Filters) -> list[Offer]:
     """Every matching offer across the configured providers, available and cheapest first."""
+    handlers = [providers.get(state.settings, only)] if only else providers.enabled(state.settings)
+    if not handlers:
+        raise Fail(
+            2,
+            "no provider is configured, so there is nothing to rent",
+            f"add a [providers.prime] or [providers.verda] section to {state.settings.path}",
+        )
     found: list[Offer] = []
-    for provider in providers.enabled(state.settings):
-        if only and provider.name != only:
-            continue
+    for provider in handlers:
         with step(f"offers from {provider.name}") as st:
             try:
                 quoted = [o for o in provider.offers(spot=spot) if filters.match(o)]

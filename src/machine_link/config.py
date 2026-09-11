@@ -200,25 +200,43 @@ reachability_timeout = 600          # total seconds to wait for a fresh machine 
 name = "{git_name}"
 email = "{git_email}"
 
-# A provider is on when its section exists. Credentials are read from the environment
-# or from ~/.config/mlink/.env, never from this file:
+# A provider is on when its section exists; 'mlink init' turns on the ones whose credentials
+# it finds. Credentials are read from the environment or from ~/.config/mlink/.env, never
+# from this file:
 #   PRIME_API_KEY                          app.primeintellect.ai > settings > API keys
 #   VERDA_CLIENT_ID, VERDA_CLIENT_SECRET   Verda console > Credentials > Cloud API
-[providers.prime]
-# image = "ubuntu_22_cuda_12"       # default: the first image the offer lists
-# disk_gb = 256
 
-# [providers.verda]
-# image = "ubuntu-24.04-cuda-12.6"
-# location = "FIN-01"               # used when an offer names no location
-# disk_gb = 100
-
+{providers}
 # Machines with a fixed address and no API behind them: a workstation, a lab server.
 # [[machines]]
 # name = "workstation"
 # host = "192.168.1.50"
 # user = "{default_user}"
 """
+
+PROVIDER_SECTIONS = {
+    "prime": """\
+[providers.prime]
+# image = "ubuntu_22_cuda_12"       # default: the first image the offer lists
+# disk_gb = 256
+""",
+    "verda": """\
+[providers.verda]
+image = "ubuntu-24.04-cuda-12.6"    # the plain ubuntu-24.04 image ships without a driver
+# location = "FIN-01"               # used when an offer names no location
+# disk_gb = 100
+""",
+}
+
+
+def _section(name: str, on: bool) -> str:
+    """A provider's section, commented out line by line when it is off."""
+    text = PROVIDER_SECTIONS[name]
+    if on:
+        return text
+    return "".join(
+        ("" if line.startswith("#") else "# ") + line + "\n" for line in text.splitlines()
+    )
 
 
 def write_settings(settings: Settings) -> None:
@@ -229,5 +247,6 @@ def write_settings(settings: Settings) -> None:
             default_user=settings.ssh.default_user,
             git_name=settings.git.name,
             git_email=settings.git.email,
+            providers="\n".join(_section(n, n in settings.providers) for n in PROVIDER_SECTIONS),
         )
     )

@@ -19,6 +19,15 @@ def test_settings_parse_providers_and_static_machines(settings):
     )
 
 
+def test_written_config_turns_on_only_the_providers_asked_for(isolated_home):
+    settings = config.Settings(path=config.settings_path(), providers={"verda": {}})
+    config.write_settings(settings)
+    text = settings.path.read_text()
+    assert "\n# [providers.prime]\n# image = " in text and "# # " not in text
+    assert '\n[providers.verda]\nimage = "ubuntu-24.04-cuda-12.6"' in text
+    assert config.load_settings().providers == {"verda": {"image": "ubuntu-24.04-cuda-12.6"}}
+
+
 def test_missing_config_is_exit_2_with_the_fix(isolated_home):
     with pytest.raises(Fail) as info:
         config.load_settings()

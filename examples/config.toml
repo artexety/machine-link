@@ -11,8 +11,9 @@ reachability_timeout = 600            # total seconds to wait for a fresh machin
 name = "Ada Lovelace"
 email = "ada@example.com"
 
-# A provider is on when its section exists. Credentials are read from the environment or
-# from ~/.config/mlink/.env (chmod 600), never from this file:
+# A provider is on when its section exists; 'mlink init' writes the sections for the providers
+# whose credentials it finds. Credentials are read from the environment or from
+# ~/.config/mlink/.env (chmod 600), never from this file:
 #   PRIME_API_KEY                          app.primeintellect.ai > settings > API keys
 #   VERDA_CLIENT_ID, VERDA_CLIENT_SECRET   Verda console > Credentials > Cloud API Credentials
 # Your ssh key is registered at each of them by 'mlink init'; nothing else is needed.

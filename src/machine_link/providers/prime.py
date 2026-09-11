@@ -13,11 +13,13 @@ from . import http, key_name, number, pubkey_text, same_key, secret
 
 API = "https://api.primeintellect.ai/api/v1"
 WHERE = "app.primeintellect.ai > settings > API keys"
+KEY = "PRIME_API_KEY"
 OVER = {"TERMINATED", "DELETING"}
 
 
 class Prime:
     name = "prime"
+    secrets = (KEY,)
     key_hint = (
         "Prime attaches the key when the pod is created; run 'mlink init' to register "
         "your key there, then recreate the pod"
@@ -28,7 +30,7 @@ class Prime:
         self.conf = settings.providers.get(self.name, {})
 
     def _call(self, method: str, path: str, body: dict | None = None):
-        headers = {"Authorization": f"Bearer {secret('PRIME_API_KEY', WHERE)}"}
+        headers = {"Authorization": f"Bearer {secret(KEY, WHERE)}"}
         return http(method, API + path, headers, body, who="Prime Intellect")
 
     def machines(self) -> list[Machine]:

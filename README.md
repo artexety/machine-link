@@ -50,7 +50,8 @@ mlink init
 writes `~/.config/mlink/config.toml` and the managed block in `~/.ssh/config`, and registers
 your public key at every configured provider. Rerun it any time; it is also the doctor.
 
-Provider credentials go in the environment or in `~/.config/mlink/.env` (`chmod 600`):
+Provider credentials go in the environment or in `~/.config/mlink/.env` (`chmod 600`); `init`
+turns on the providers it finds credentials for:
 
 ```
 PRIME_API_KEY=...            # app.primeintellect.ai > settings > API keys
@@ -160,7 +161,8 @@ Commands run outside a project fall back to the last machine used and say so; `d
 | `providers.verda.location` | `FIN-01` | Used when an offer names no location |
 | `machines[].name`, `.host`, `.user`, `.port` | | Machines with a fixed address and no API |
 
-A provider is enabled by the presence of its `[providers.<name>]` section.
+A provider is enabled by the presence of its `[providers.<name>]` section; `init` writes the
+sections for the providers whose credentials it finds and leaves the others commented out.
 Annotated copies of both files are in [examples/](examples/); every command and flag is in
 [DOCS.md](DOCS.md).
 

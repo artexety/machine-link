@@ -13,12 +13,14 @@ from . import http, key_name, number, pubkey_text, same_key, secret
 
 API = "https://api.verda.com/v1"
 WHERE = "the Verda console > Credentials > Cloud API Credentials"
+CLIENT_ID, CLIENT_SECRET = "VERDA_CLIENT_ID", "VERDA_CLIENT_SECRET"
 DEFAULT_IMAGE = "ubuntu-24.04-cuda-12.6"
 DEFAULT_LOCATION = "FIN-01"
 
 
 class Verda:
     name = "verda"
+    secrets = (CLIENT_ID, CLIENT_SECRET)
     key_hint = (
         "Verda attaches keys when the instance is created; run 'mlink init' to register "
         "your key there, then recreate the instance"
@@ -33,8 +35,8 @@ class Verda:
         if not self._token:
             grant = {
                 "grant_type": "client_credentials",
-                "client_id": secret("VERDA_CLIENT_ID", WHERE),
-                "client_secret": secret("VERDA_CLIENT_SECRET", WHERE),
+                "client_id": secret(CLIENT_ID, WHERE),
+                "client_secret": secret(CLIENT_SECRET, WHERE),
             }
             self._token = http("POST", API + "/oauth2/token", {}, grant, who="Verda")[
                 "access_token"

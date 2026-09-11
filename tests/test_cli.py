@@ -8,9 +8,10 @@ import time
 import pytest
 from typer.testing import CliRunner
 
-from machine_link import cli, sshconf
+from machine_link import cli, config, sshconf
 from machine_link.registry import Registry
 from machine_link.ui import Fail
+from tests.conftest import PUBKEY
 from tests.test_providers import PRIME_ROUTES, VERDA_ROUTES
 
 runner = CliRunner()
@@ -55,6 +56,49 @@ def rented(settings, project):
     )
     registry.save()
     return registry
+
+
+# ---- init -------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fresh_computer(isolated_home, calls, monkeypatch):
+    """A key pair on disk and in the agent, GitHub happy, no config yet, no credentials."""
+    key = isolated_home / ".ssh" / "id_ed25519"
+    key.write_text("PRIVATE KEY MATERIAL")
+    key.with_name("id_ed25519.pub").write_text(PUBKEY + "\n")
+    calls.answer("ssh-keygen -lf", stdout="256 SHA256:abc local-comment (ED25519)\n")
+    calls.answer("ssh-add -l", stdout="256 SHA256:abc local-comment (ED25519)\n")
+    calls.answer("git@github.com", stdout="Hi ada! You've successfully authenticated\n")
+    for name in ("PRIME_API_KEY", "VERDA_CLIENT_ID", "VERDA_CLIENT_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    return calls
+
+
+def test_init_turns_on_only_the_providers_it_has_credentials_for(fresh_computer, http, monkeypatch):
+    monkeypatch.setenv("PRIME_API_KEY", "prime-secret")
+    fake = http(PRIME_ROUTES)
+    assert mlink("init", "--yes")[0] == 0
+    written = config.settings_path().read_text()
+    assert "\n[providers.prime]\n# image" in written and "\n# [providers.verda]\n# image" in written
+    assert config.load_settings().providers == {"prime": {}}
+    assert fake.sent("GET", "/ssh_keys/")  # the key was checked at the one provider that is on
+    monkeypatch.delenv("PRIME_API_KEY")
+    assert mlink("init", "--yes")[0] == 0  # a rerun diagnoses; it never rewrites the config
+    assert config.settings_path().read_text() == written
+
+
+def test_init_without_credentials_says_how_to_rent_later(fresh_computer):
+    result = runner.invoke(cli.app, ["init", "--yes"])
+    assert result.exit_code == 0
+    assert config.load_settings().providers == {}
+    assert "uncomment the provider" in result.output
+    assert "mlink gpus" not in result.output
+
+
+def test_init_needs_a_terminal_or_yes(fresh_computer):
+    assert mlink("init")[0] == 2
+    assert not config.settings_path().exists()
 
 
 # ---- up ---------------------------------------------------------------------------------------
@@ -241,6 +285,16 @@ def test_gpus_lists_cheapest_first_and_remembers_the_rows(settings, project, htt
     assert len(json.loads(cli._rows_file().read_text())) == 3
     code, output = mlink("gpus", "--provider", "verda", "--spot", "--gpu", "a6000", "--json")
     assert json.loads(output)[0]["price_hr"] == 0.305
+
+
+def test_renting_needs_a_configured_provider(settings, http):
+    http({**PRIME_ROUTES, **VERDA_ROUTES})
+    settings.path.write_text("[ssh]\n[providers.prime]\n")
+    assert mlink("gpus", "--provider", "verda")[0] == 2  # known, but not configured
+    assert mlink("gpus", "--provider", "nimbus")[0] == 2  # not a provider at all
+    settings.path.write_text("[ssh]\n")
+    assert mlink("gpus")[0] == 2
+    assert mlink("launch", "--gpu", "a100", "--dry-run")[0] == 2
 
 
 def test_launch_refuses_unattended_and_creates_nothing_on_a_dry_run(settings, project, http):
