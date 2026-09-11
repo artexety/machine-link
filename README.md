@@ -5,6 +5,13 @@
 
 One command to prepare a rented or local machine for work.
 
+<p align="center">
+  <a href="mlink-demo.gif"><img
+    src="mlink-demo.gif" width="100%"
+    alt="mlink gpus lists live offers from three providers, mlink launch rents row 1 and prepares it, mlink down refuses to destroy a machine holding unpushed commits"
+  ></a>
+</p>
+
 It rents from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and [Verda](https://verda.com), on demand from all three and spot or interruptible from Vast and Verda, or adopts any machine you can already ssh to. Nothing is installed on the box and there is no daemon: mlink wraps the system `ssh`, `scp` and `rsync`, and leaves the machine reachable by every tool that already speaks ssh.
 
 ```bash
