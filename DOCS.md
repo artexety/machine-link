@@ -175,6 +175,28 @@ by fallback. It warns when other projects still point at the machine. Machines f
 
 ---
 
+## Configuration
+
+`~/.config/mlink/config.toml`, written by `init`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ssh.identity_file` | `~/.ssh/id_ed25519` | The key; its `.pub` is registered at each provider |
+| `ssh.default_user` | `ubuntu` | Remote user when a target names none |
+| `ssh.connect_timeout` | `5` | Seconds per connection attempt |
+| `ssh.reachability_timeout` | `900` | Seconds to wait for a fresh machine to accept ssh; Vast's first boot takes 5-10 minutes |
+| `git.name`, `git.email` | | Set with `git config --global` on the box |
+| `providers.prime.image` | the offer's first image | Prime pod image |
+| `providers.vast.image` | `vastai/base-image:@vastai-automatic-tag` | Docker image; Vast adds sshd to it |
+| `providers.vast.disk_gb` | `50` | Disk of a Vast instance |
+| `providers.verda.image` | `ubuntu-24.04-cuda-12.6` | Verda image |
+| `providers.verda.location` | `FIN-01` | Used when an offer names no location |
+| `machines[].name`, `.host`, `.user`, `.port` | | Machines with a fixed address and no API |
+
+A provider is enabled by the presence of its `[providers.<name>]` section; `init` writes the sections for the providers whose credentials it finds and leaves the others commented out.
+
+---
+
 ## Files
 
 | Path | Contents |
@@ -184,7 +206,8 @@ by fallback. It warns when other projects still point at the machine. Machines f
 | `~/.config/mlink/known_hosts` | Host keys of your machines, dropped when they go |
 | `~/.local/state/mlink/machines.json` | The registry: machines and per-project pointers |
 | `~/.local/state/mlink/gpus.json` | The last `mlink gpus` listing, for row numbers |
-| `~/.ssh/config` | One managed block, one `Host` stanza per machine |
+| `~/.ssh/config` | One managed block, one `Host` stanza per machine; everything outside the markers is untouched |
+| `~/.ssh/config.mlink.bak` | One-time backup, taken the first time the block is written |
 | `mlink.toml` | Per project: repos, sync paths, provisioning |
 
 See `examples/` for annotated copies of both configs.
