@@ -82,7 +82,7 @@ are numbers. A Vast `--spot` launch bids the listed minimum price and can be out
 The plan and its price are printed first. Without `--yes` it asks; outside a terminal it
 refuses rather than proceeding. The machine is registered the moment the provider returns an
 id, before the address wait, so nothing can bill unnoticed. The wait allows three times
-`reachability_timeout` (30 minutes by default; some providers take a while). If it runs out,
+`reachability_timeout` (45 minutes by default; some providers take a while). If it runs out,
 the entry stays and `mlink ls --refresh` picks the address up later.
 
 ---
@@ -92,7 +92,8 @@ the entry stays and `mlink ls --refresh` picks the address up later.
 ### `mlink up [TARGET]`
 Makes a machine ready:
 
-1. writes its ssh stanza and waits until it accepts a login (a rejected key stops here, exit 3)
+1. writes its ssh stanza and waits until it accepts a login (a rejected key stops here, exit 3;
+   Vast's base image needs five to ten minutes on its first boot)
 2. verifies agent forwarding on the machine (exit 4 if the box blocks it)
 3. verifies GitHub answers **from the machine** through the forwarded agent (exit 4)
 4. sets your git identity

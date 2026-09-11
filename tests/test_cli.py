@@ -418,7 +418,13 @@ def test_down_force_terminates_forgets_the_host_and_unpins(settings, project, ht
 def test_down_treats_an_unreachable_machine_as_unsafe(settings, project, http, calls, rented):
     http(PRIME_ROUTES)
     calls.answer("--mlink--", code=255, stderr="ssh: connect to host: Connection refused")
-    assert mlink("down", "--yes")[0] == 5
+    result = runner.invoke(cli.app, ["down", "--yes"])
+    assert isinstance(result.exception, Fail) and result.exception.code == 5
+    assert "could not be inspected" in result.exception.message  # not "unpushed work"
+    calls.answers.clear()
+    calls.answer("--mlink--", stdout=UNPUSHED)
+    result = runner.invoke(cli.app, ["down", "--yes"])
+    assert "research has 1 unpushed commits" in result.exception.message
 
 
 def test_down_keeps_the_entry_when_asked(settings, project, http, calls, rented):

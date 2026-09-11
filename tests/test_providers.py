@@ -212,8 +212,10 @@ VAST_KEYS = [
     {
         "id": 7001,
         "user_id": 1,
-        "key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyBody you@example.com",
-        "created_at": "2026-01-01T00:00:00Z",
+        "default": None,
+        "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyBody you@example.com",
+        "private_key": None,
+        "created_at": 1789108558.0,
         "deleted_at": None,
     }
 ]
@@ -495,6 +497,19 @@ def test_vast_launch_registers_the_key_first_and_reads_the_contract_id(settings,
     spot = next(o for o in Vast(settings).offers(Filters(), spot=True) if o.id == "48480002")
     Vast(settings).launch(spot, "cheap", spot=True)
     assert fake.sent("PUT", "/asks/48480002/")[-1]["price"] == 9.2
+
+
+def test_vast_offer_taken_between_listing_and_create_is_exit_2(settings, http):
+    def gone(body):
+        raise Fail(
+            1, 'Vast answered 400: {"error":"invalid_args","msg":"error 404/3603: no_such_ask"}'
+        )
+
+    http({**VAST_ROUTES, ("PUT", "/asks/48480002/"): gone})
+    offer = next(o for o in Vast(settings).offers(Filters()) if o.id == "48480002")
+    with pytest.raises(Fail) as info:
+        Vast(settings).launch(offer, "trainer")
+    assert info.value.code == 2 and "mlink gpus" in info.value.fix
 
 
 def test_vast_config_can_pick_image_and_disk(settings, http):

@@ -19,7 +19,7 @@ class Ssh:
     identity_file: str = "~/.ssh/id_ed25519"
     default_user: str = "ubuntu"
     connect_timeout: int = 5
-    reachability_timeout: int = 600
+    reachability_timeout: int = 900
 
     @property
     def key(self) -> Path:
@@ -194,7 +194,7 @@ TEMPLATE = """\
 identity_file = "{identity_file}"   # its .pub is registered at every provider by 'mlink init'
 default_user = "{default_user}"     # remote user when a target names none
 connect_timeout = 5                 # seconds per connection attempt
-reachability_timeout = 600          # total seconds to wait for a fresh machine to accept ssh
+reachability_timeout = 900          # total seconds to wait for a fresh machine to accept ssh
 
 [git]
 name = "{git_name}"

@@ -118,7 +118,16 @@ class Vast:
         }
         if spot or offer.spot:
             body["price"] = offer.price_hr
-        created = self._call("PUT", f"/v0/asks/{offer.id}/", body)
+        try:
+            created = self._call("PUT", f"/v0/asks/{offer.id}/", body)
+        except Fail as exc:
+            if "no_such_ask" not in exc.message:
+                raise
+            raise Fail(
+                2,
+                f"offer {offer.id} was rented by someone else meanwhile",
+                "run 'mlink gpus' again and pick another row",
+            ) from None
         if not created.get("new_contract"):
             raise Fail(
                 1,
@@ -141,8 +150,8 @@ class Vast:
 
     def ensure_key(self) -> str:
         local = pubkey_text(self.settings)
-        for key in self._call("GET", "/v0/ssh/"):
-            if not key.get("deleted_at") and same_key(key.get("key") or "", local):
+        for key in self._call("GET", "/v0/ssh/"):  # the list says public_key, whatever the docs say
+            if not key.get("deleted_at") and same_key(key.get("public_key") or "", local):
                 return str(key["id"])
         created = self._call("POST", "/v0/ssh/", {"ssh_key": local})
-        return str(created["key"]["id"])
+        return str((created.get("key") or created)["id"])

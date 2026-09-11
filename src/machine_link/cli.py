@@ -597,23 +597,18 @@ def down(
         )
     handler = providers.get(state.settings, machine.provider)
     with step(f"checking {machine.name} for unpushed work") as st:
-        safe = _safe(state, machine)
-        if safe:
-            st.note = "clean"
+        unsafe = _unsafe(state, machine)
+        if unsafe:
+            st.fail(unsafe)
         else:
-            st.fail("work would be lost")
-    if not safe and not force and machine.host:
+            st.note = "clean"
+    if unsafe and not force:
         raise Fail(
             5,
-            f"{machine.name} has work that is not pushed",
-            "push it, or rerun with --force to destroy it anyway",
+            f"{machine.name}: {unsafe}",
+            "push the work, or rerun with --force to destroy the machine anyway",
         )
-    if not safe and not force:
-        raise Fail(
-            5,
-            f"{machine.name} has no address yet, so its work could not be inspected",
-            "run 'mlink ls --refresh' and retry, or rerun with --force to destroy it anyway",
-        )
+    safe = not unsafe
     for other in state.registry.users_of(machine.name):
         if other != str(state.project.dir):
             warn(f"{other} is also using {machine.name}")
@@ -636,24 +631,27 @@ def down(
     say(f"{machine.name} removed from the registry, ~/.ssh/config and known_hosts")
 
 
-def _safe(state: State, machine: Machine) -> bool:
-    """Whether every repo deployed to the machine is clean and pushed. Unreachable is unsafe."""
+def _unsafe(state: State, machine: Machine) -> str:
+    """Why destroying the machine would lose work, or "" when every deployed repo is pushed.
+
+    A machine that cannot be inspected counts as unsafe: silence is not a clean tree.
+    """
     repos = _repos(state, machine)
     if not repos:
         say(f"no [[repos]] here and nothing was deployed to {machine.name}; nothing to check")
-        return True
+        return ""
     if not machine.host:
-        return False
+        return "it has no address yet, so its work could not be inspected"
     try:
         states = [remote.repo_state(machine, repo) for repo in repos]
     except Fail as exc:
-        warn(f"could not inspect the machine: {exc.message}")
-        return False
-    for s in states:
-        if not s.clean:
-            what = "uncommitted changes" if s.dirty else f"{s.unpushed} unpushed commits"
-            warn(f"{s.name}: {what}")
-    return all(s.clean for s in states)
+        return f"it could not be inspected ({remote.short(exc.message)})"
+    reasons = [
+        f"{s.name} has {'uncommitted changes' if s.dirty else f'{s.unpushed} unpushed commits'}"
+        for s in states
+        if not s.clean
+    ]
+    return "; ".join(reasons)
 
 
 # ---- managing machines ------------------------------------------------------------------------

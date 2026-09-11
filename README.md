@@ -163,7 +163,7 @@ Commands run outside a project fall back to the last machine used and say so. In
 | `ssh.identity_file` | `~/.ssh/id_ed25519` | The key; its `.pub` is registered at each provider |
 | `ssh.default_user` | `ubuntu` | Remote user when a target names none |
 | `ssh.connect_timeout` | `5` | Seconds per connection attempt |
-| `ssh.reachability_timeout` | `600` | Seconds to wait for a fresh machine to accept ssh |
+| `ssh.reachability_timeout` | `900` | Seconds to wait for a fresh machine to accept ssh; Vast's first boot takes 5-10 minutes |
 | `git.name`, `git.email` | | Set with `git config --global` on the box |
 | `providers.prime.image` | the offer's first image | Prime pod image |
 | `providers.vast.image` | `vastai/base-image:@vastai-automatic-tag` | Docker image; Vast adds sshd to it |
