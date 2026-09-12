@@ -6,6 +6,7 @@ import pathlib
 import re
 import socket
 import subprocess
+import time
 from collections.abc import Callable
 
 import pytest
@@ -36,6 +37,19 @@ def isolated_home(tmp_path_factory, monkeypatch):
     monkeypatch.delenv("MLINK_ENV", raising=False)
     monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
     return home
+
+
+@pytest.fixture(autouse=True)
+def fast_clock(monkeypatch):
+    """No test waits in real time: a sleep advances a fake clock instead of the wall.
+
+    `wait_reachable` and the address poll are real waits, and one of them now tolerates a
+    two-minute key grace. Without this the suite would sit through it.
+    """
+    now = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    return now
 
 
 @pytest.fixture(autouse=True)

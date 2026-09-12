@@ -104,8 +104,9 @@ anything ambiguous stops, because a maybe would risk paying for two machines.
 ### `mlink up [TARGET]`
 Makes a machine ready:
 
-1. writes its ssh stanza and waits until it accepts a login (a rejected key stops here, exit 3;
-   Vast's base image needs five to ten minutes on its first boot)
+1. writes its ssh stanza and waits until it accepts a login (Vast's base image needs five to
+   ten minutes on its first boot, and refuses the key for the first minute of it; a key still
+   refused after two minutes stops here, exit 3)
 2. loads your key into mlink's own agent, bound to this machine and to its hop to github.com
 3. verifies agent forwarding on the machine (exit 4 if the box blocks it)
 4. verifies GitHub answers **from the machine** through the forwarded agent (exit 4)
