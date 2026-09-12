@@ -317,34 +317,54 @@ def gpus(
     _rows_file().parent.mkdir(parents=True, exist_ok=True)
     _rows_file().write_text(json.dumps([asdict(o) for o in shown]))
     if as_json:
-        out.print(json.dumps([{"row": i, **asdict(o)} for i, o in enumerate(shown, 1)], indent=2))
+        out.print(
+            json.dumps(
+                [
+                    {"row": i, **asdict(o), "gpu_parsed": asdict(o.card)}
+                    for i, o in enumerate(shown, 1)
+                ],
+                indent=2,
+            )
+        )
         return
     if not shown:
         say(
             "nothing matched" + ("" if cpu else "; CPU-only instances are hidden, --cpu shows them")
         )
         return
+    # The parsed name gets a column per field rather than one crowded one: what separates two
+    # rows of the same card is usually the variant or the memory, and a column can be scanned.
+    # The variant carries no header, like the note column at the end: it reads as a continuation
+    # of the name beside it, and any word for it is wider than the values it would label. A
+    # field no row in this listing fills gets no column at all.
+    cards = [o.card for o in shown]
+    variants = any(card.variant for card in cards)
+    memories = any(card.memory_gb is not None for card in cards)
     table = Table(box=None, pad_edge=False)
     table.add_column("#", justify="right")
     table.add_column("provider")
     table.add_column("gpu")
+    if variants:
+        table.add_column("")
+    if memories:
+        table.add_column("GB", justify="right")
     table.add_column("n", justify="right")
     table.add_column("region")
     table.add_column("$/hr", justify="right")
     table.add_column("")
-    for number, o in enumerate(shown, 1):
-        note = "unavailable" if not o.available else ("spot" if o.spot else "")
-        price = f"{o.price_hr:.2f}" if o.price_hr is not None else "?"
-        table.add_row(
-            str(number),
-            o.provider,
-            o.gpu,
+    for number, (o, card) in enumerate(zip(shown, cards, strict=True), 1):
+        row = [str(number), o.provider, card.model]
+        if variants:
+            row.append(card.variant)
+        if memories:
+            row.append("" if card.memory_gb is None else str(card.memory_gb))
+        row += [
             str(o.gpu_count),
             o.region,
-            price,
-            note,
-            style=None if o.available else "dim",
-        )
+            f"{o.price_hr:.2f}" if o.price_hr is not None else "?",
+            "unavailable" if not o.available else ("spot" if o.spot else ""),
+        ]
+        table.add_row(*row, style=None if o.available else "dim")
     out.print(table)
     say(f"{len(shown)} of {len(found)}; launch one with: mlink launch <#> --name <name>")
 
@@ -399,7 +419,10 @@ def launch(
 
 
 def _name_for(state: State, offer: Offer, name: str | None) -> str:
-    return valid_name(name or unique_name(f"{offer.provider}-{offer.gpu}", state.registry.machines))
+    # The model rather than the provider's whole string: a Verda default was once
+    # "verda-1x-A100-SXM4-80GB", and the same card from Prime was named nothing like it.
+    base = f"{offer.provider}-{offer.card.model}"
+    return valid_name(name or unique_name(base, state.registry.machines))
 
 
 def _create(
@@ -772,7 +795,13 @@ def ls(
         out.print(
             json.dumps(
                 [
-                    {**asdict(m), "current": m is marked, "uptime": m.uptime, "spend": m.spend}
+                    {
+                        **asdict(m),
+                        "current": m is marked,
+                        "uptime": m.uptime,
+                        "spend": m.spend,
+                        "gpu_parsed": asdict(m.card),
+                    }
                     for m in machines
                 ],
                 indent=2,
@@ -793,7 +822,7 @@ def ls(
             m.name,
             m.provider,
             f"{m.user}@{m.host or '?'}" + (f":{m.port}" if m.port != 22 else ""),
-            m.gpu,
+            m.card.label,
             m.status,
             "" if m.price_hr is None else f"{m.price_hr:.2f}",
             m.uptime,

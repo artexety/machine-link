@@ -40,7 +40,7 @@ Everything your configured providers will rent right now, cheapest first, with a
 
 | Flag | Meaning |
 |---|---|
-| `--gpu TEXT` | GPU name contains this, case-insensitive (`a100`, `4090`) |
+| `--gpu TEXT` | GPU name contains this, spacing and case ignored (`a100`, `4090`, `rtx6000ada`) |
 | `--max-price N` | At most this many $/hr |
 | `--gpu-count N` | At least this many GPUs |
 | `--region TEXT` | Region contains this (`fin`, `us-east`) |
@@ -56,6 +56,10 @@ host's location (`US, TX`). Vast answers at most 64 offers per search, cheapest 
 it with `--gpu` or `--gpu-count`: the GPU fragment is matched against Vast's catalogue names and
 sent along. With no provider configured, or an unknown `--provider`, it exits 2 and says what
 to add.
+
+The `gpu` and `GB` columns, and the unheaded one between them, are the parsed name rather than
+the provider's, so two rows of the same card differ where they actually differ. A column no row
+fills is not shown: see **GPU names** below.
 
 ### `mlink launch [ROW | ID]`
 Creates a machine, registers it, writes its ssh alias.
@@ -197,6 +201,69 @@ from, confirms, destroys the machine at its provider, then forgets it.
 Inside a project it acts on that project's machine or one you name, never on another project's
 by fallback. It warns when other projects still point at the machine. Machines from
 `[[machines]]` have no provider behind them and are refused; `forget` is for those.
+
+---
+
+## GPU names
+
+Every provider spells a GPU differently. Prime writes `RTX6000Ada_48GB`, Vast writes
+`RTX 6000Ada`, Verda writes `1x RTX 6000 Ada 48GB`, and all three mean the same card. mlink
+parses each name into a model, a variant and a memory size, and shows and filters on that, so a
+listing reads the same whichever provider a row came from:
+
+| Provider says | `gpu` | `variant` | `GB` |
+|---|---|---|---|
+| `RTX6000Ada_48GB` | RTX 6000 | Ada | 48 |
+| `RTX 6000Ada` | RTX 6000 | Ada | |
+| `1x RTX 6000 Ada 48GB` | RTX 6000 | Ada | 48 |
+| `Q RTX 8000` | RTX 8000 | | |
+| `H100 SXM` plus `gpu_ram` | H100 | SXM | 80 |
+
+Each field gets its own column in `mlink gpus`, because what separates two rows of the same card
+is usually the variant or the memory, and that is worth being able to scan down. The variant
+column carries no header, like the note column at the end of the row: it reads as a continuation
+of the name beside it, and any word for it would be wider than the values it labels.
+
+```
+#  provider  gpu         GB  n  region        $/hr
+1  prime     H100        80  1  us-central-3  2.35
+2  vast      H100  NVL   94  1  Malaysia, MY  2.60
+3  vast      H100  PCIE  80  1  Czechia, CZ   2.62
+4  vast      H100  SXM   80  1  Japan, JP     2.69
+```
+
+A column no row in the listing fills is left out rather than standing empty, so a search for a
+card with no variants is exactly as narrow as it was before the column existed:
+
+```
+#  provider  gpu   GB  n  region        $/hr
+1  vast      L40S  45  1  Japan, JP     0.61
+3  prime     L40S  48  1  us-central-2  0.82
+7  verda     L40S  48  1                1.37  unavailable
+```
+
+`mlink ls` keeps the one column, since by then you know what you rented.
+
+A Vast name never carries memory, so it is taken from the offer's own `gpu_ram`; where a name
+does carry it the name wins, because that is the thing being sold. Brand words (`Tesla`,
+`Quadro`, Vast's `Q`) are dropped: they say who made it, not what it is. The count stays on the
+offer, which every provider reports as a number; parsing a `8x` out of a Verda name only stops
+it turning up in the model.
+
+`--gpu` compares with the spacing and punctuation removed, and against the provider's own
+wording as well as the parsed one. So `rtx6000ada`, `RTX 6000 Ada` and `rtx 6000ada` are one
+question, and `q rtx` still finds what Vast calls `Q RTX 8000`. For Vast the same comparison
+picks the catalogue names to send server-side, so a spacing-free query works there too.
+
+Parsing never drops a row. A name the rules do not recognise keeps its whole self as the model,
+lists normally and rents normally, and the raw string is always kept because it is what a
+provider may want back at launch. `--json` carries it as `gpu`, with the parsed fields under
+`gpu_parsed`.
+
+One thing it does not paper over: Prime calls an RTX A6000 an `A6000_48GB` while Vast and Verda
+call it `RTX A6000`, so `--gpu "rtx a6000"` misses Prime's rows. `--gpu a6000` finds all three.
+Normalising that away would mean keeping a table of marketing names, which would be wrong within
+a quarter.
 
 ---
 

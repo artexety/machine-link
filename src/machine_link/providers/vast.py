@@ -13,6 +13,7 @@ import json
 from urllib.parse import urlencode
 
 from ..config import Settings
+from ..gpu import squash
 from ..models import Filters, Machine, Offer
 from ..ui import Fail
 from . import Gone, http, number, pubkey_text, same_key, secret
@@ -22,6 +23,11 @@ WHERE = "cloud.vast.ai > Account > Keys"
 KEY = "VAST_API_KEY"
 DEFAULT_IMAGE = "vastai/base-image:@vastai-automatic-tag"
 DEFAULT_DISK_GB = 50
+
+
+def _gigabytes(megabytes: object) -> int | None:
+    value = number(megabytes)
+    return round(value / 1024) if value else None
 
 
 class Vast:
@@ -81,8 +87,10 @@ class Vast:
             "allocated_storage": self._disk(),
         }
         if filters.gpu:
+            # Vast matches a name exactly and has no substring operator, so the fragment is
+            # resolved to catalogue names here, in the same vocabulary --gpu is written in.
             names = self._call("GET", "/v0/gpu_names/unique/")["gpu_names"]
-            wanted = [n for n in names if filters.gpu.lower() in n.lower()]
+            wanted = [n for n in names if squash(filters.gpu) in squash(n)]
             if not wanted:
                 return []
             query["gpu_name"] = {"in": wanted}
@@ -102,6 +110,8 @@ class Vast:
                     price_hr=number(item.get("min_bid") if spot else item.get("dph_total")),
                     available=bool(item.get("rentable", True)),
                     spot=spot,
+                    # A Vast name never carries memory; the offer reports it in MB per card.
+                    gpu_memory_gb=_gigabytes(item.get("gpu_ram")),
                     raw={k: item.get(k) for k in ("cuda_max_good", "disk_space", "reliability")},
                 )
             )

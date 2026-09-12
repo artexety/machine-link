@@ -7,6 +7,8 @@ import shlex
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from .gpu import Gpu, matches
+from .gpu import parse as parse_gpu
 from .ui import Fail
 
 STATIC = "static"
@@ -38,6 +40,7 @@ class Machine:
     port: int = 22
     provider: str = STATIC
     id: str = ""
+    #: Exactly what the provider called it. Parsed for display through `card`.
     gpu: str = ""
     region: str = ""
     status: str = ""
@@ -46,6 +49,11 @@ class Machine:
     created: str = ""
     #: Paths of the repos `up` deployed here, so `down` can check them from any directory.
     repos: list[str] = field(default_factory=list)
+
+    @property
+    def card(self) -> Gpu:
+        """The name in mlink's vocabulary rather than the provider's."""
+        return parse_gpu(self.gpu)
 
     @property
     def hours(self) -> float | None:
@@ -84,17 +92,25 @@ class Offer:
 
     provider: str
     id: str
+    #: Exactly what the provider called it, which is what `launch` may have to send back.
     gpu: str
     gpu_count: int
     region: str
     price_hr: float | None
     available: bool = True
     spot: bool = False
+    #: For a provider whose names omit it, as Vast's do, and it reports the number separately.
+    gpu_memory_gb: int | None = None
     raw: dict = field(default_factory=dict)
 
     @property
+    def card(self) -> Gpu:
+        """The name in mlink's vocabulary rather than the provider's."""
+        return parse_gpu(self.gpu, self.gpu_memory_gb)
+
+    @property
     def label(self) -> str:
-        return f"{self.gpu_count}x {self.gpu}" if self.gpu_count > 1 else self.gpu
+        return f"{self.gpu_count}x {self.card.label}" if self.gpu_count > 1 else self.card.label
 
     @property
     def price(self) -> str:
@@ -121,7 +137,7 @@ class Filters:
         return (
             (not self.id or offer.id == self.id)
             and (self.cpu or offer.gpu_count > 0)
-            and self.gpu.lower() in offer.gpu.lower()
+            and matches(self.gpu, offer.card)
             and self.region.lower() in offer.region.lower()
             and offer.gpu_count >= self.min_count
             and (

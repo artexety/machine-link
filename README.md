@@ -12,7 +12,7 @@ One command to prepare a rented or local machine for work.
   ></a>
 </p>
 
-It rents from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and [Verda](https://verda.com), on demand from all three and spot or interruptible from Vast and Verda, or adopts any machine you can already ssh to. Nothing is installed on the box and there is no daemon: mlink wraps the system `ssh`, `scp` and `rsync`, and leaves the machine reachable by every tool that already speaks ssh.
+It rents from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and [Verda](https://verda.com), on demand from all three and spot or interruptible from Vast and Verda, or adopts any machine you can already ssh to. Nothing is installed on the box and there is no daemon: mlink wraps the system `ssh`, `scp` and `rsync`, and leaves the machine reachable by every tool that already speaks ssh. One provider calls a card `RTX6000Ada_48GB` and another calls it `1x RTX 6000 Ada 48GB`; mlink parses both and shows and filters on the one name.
 
 ```bash
 mlink gpus --gpu a100 --max-price 2    # what your providers rent right now, cheapest first
