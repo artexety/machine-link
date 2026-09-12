@@ -19,6 +19,8 @@ from .models import Machine
 from .ui import OPTS, Fail, err, step, warn
 
 GITHUB_OK = "successfully authenticated"
+#: A per-directory merge of every .gitignore in the tree, which macOS's openrsync honours too.
+GITIGNORE = "--filter=:- .gitignore"
 MARK = "--mlink--"
 FIX_LOCAL_AGENT = "run 'mlink init' here; usually the local agent lost the key"
 #: A constrained key needs the machine's own ssh client to prove the second hop, which is what
@@ -291,3 +293,15 @@ def pull(machine: Machine, mapping: Sync, *, delete: bool) -> Result:
     local.mkdir(parents=True, exist_ok=True)
     argv = ["rsync", "-az", "--partial", *(["--delete"] if delete else [])]
     return run([*argv, f"{machine.alias}:{mapping.remote.rstrip('/')}/", str(local)], stream=True)
+
+
+def push(machine: Machine, mapping: Sync, *, delete: bool) -> Result:
+    """Mirror the local path's contents into the remote one, minus whatever git ignores.
+
+    The gitignore filter is what makes this usable on a working tree: it is the difference
+    between sending your source and sending your virtualenv and your checkpoints. `pull` has
+    no such filter, because a results directory is not a source tree.
+    """
+    local = str(Path(mapping.local).expanduser()).rstrip("/")
+    argv = ["rsync", "-az", "--partial", GITIGNORE, *(["--delete"] if delete else [])]
+    return run([*argv, f"{local}/", f"{machine.alias}:{mapping.remote}"], stream=True)

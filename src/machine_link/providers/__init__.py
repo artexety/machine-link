@@ -18,6 +18,21 @@ from ..models import Filters, Machine, Offer
 from ..ui import OPTS, Fail, err
 
 
+class Gone(Fail):
+    """The offer was taken between the listing and the create, and nothing was created.
+
+    Raised only where a provider says so unambiguously, because the caller answers it by
+    creating something else: a maybe would risk paying for two machines.
+    """
+
+    def __init__(self, offer_id: str):
+        super().__init__(
+            2,
+            f"offer {offer_id} was rented by someone else meanwhile",
+            "run 'mlink gpus' again and pick another row",
+        )
+
+
 class Provider(Protocol):
     name: str
     #: The environment variables that hold the credentials.

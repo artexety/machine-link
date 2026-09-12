@@ -18,6 +18,7 @@ It rents from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https:
 mlink gpus --gpu a100 --max-price 2    # what your providers rent right now, cheapest first
 mlink launch 1 --name trainer --up     # rent row 1, wait for it, clone your repo onto it
 mlink ssh                              # or plain: ssh trainer
+mlink push                             # rsync work up, minus whatever git ignores
 mlink pull                             # rsync results back
 mlink down                             # refuses on unpushed work, then destroys it
 ```
@@ -53,7 +54,7 @@ url = "git@github.com:you/research.git"
 dest = "~/research"
 post_clone = ["uv sync"]
 
-[[sync]]                                  # for 'mlink pull'
+[[sync]]                                  # for 'mlink push' and 'mlink pull'
 remote = "~/research/runs"
 local = "~/runs"
 

@@ -85,6 +85,14 @@ id, before the address wait, so nothing can bill unnoticed. The wait allows thre
 `reachability_timeout` (45 minutes by default; some providers take a while). If it runs out,
 the entry stays and `mlink ls --refresh` picks the address up later.
 
+**When an offer is taken meanwhile.** A marketplace offer can be rented by somebody else
+between the listing and the create. If you launched by **filters**, mlink moves to the next
+offer that matched, up to three attempts, printing each one and its price; the fallbacks are
+the offers that already passed your filters, so `--max-price` still binds. If you launched by
+**row or id** you named that offer, and mlink exits 2 rather than renting a different one. Only
+a provider that says plainly it created nothing lets the next be tried, which today means Vast;
+anything ambiguous stops, because a maybe would risk paying for two machines.
+
 ---
 
 ## Working on a machine
@@ -118,9 +126,29 @@ Everything after `--` is the command. Without `--`, the first word is the machin
 known name or looks like an address (`user@host`, `10.0.0.1`, `gpu.example.org`); otherwise it
 starts the command. Plain `ssh <name>` works from any tool too.
 
+### `mlink push [TARGET]`
+Copies each `[[sync]]` local path into its remote path with
+`rsync -az --partial --filter=':- .gitignore'`; `--delete` removes remote files that are gone
+locally. Every `.gitignore` in the tree is honoured, so a working tree goes up without its
+virtualenv or its checkpoints, and a local path that does not exist is reported rather than
+created.
+
+The `[[sync]]` pairs travel both ways: `push` sends the local side up, `pull` brings the remote
+side down. To send code rather than results, add a pair for it:
+
+```toml
+[[sync]]
+remote = "~/research"
+local = "."
+```
+
+That is also how to work on a machine with `forward_agent = "never"`, where the box cannot
+reach GitHub at all.
+
 ### `mlink pull [TARGET]`
 Copies each `[[sync]]` remote path into its local path with `rsync -az --partial`;
-`--delete` removes local files that are gone remotely. The machine needs rsync installed; `up`
+`--delete` removes local files that are gone remotely. There is no gitignore filter on the way
+down, because a results directory is not a source tree. The machine needs rsync installed; `up`
 warns when it is missing and the project has `[[sync]]` entries.
 
 ### `mlink check [TARGET]`
@@ -136,6 +164,12 @@ The machines this client knows about; `*` marks the one this project uses (or, o
 project, the last used). `--refresh` asks every configured provider first: new machines are
 added, changed addresses updated, and machines a provider no longer lists are dropped along with
 their host keys. A provider that cannot be reached is reported and skipped. `--json` for scripts.
+
+The `$/hr` and `up` columns, and the burn line under the table, cover the machines **mlink
+rented**: it records the offer's price and the moment of creation, so it can tell you what the
+fleet costs per hour and what it has cost so far. A machine mlink merely adopted, from
+`[[machines]]` or from `ls --refresh`, has no price it can honestly quote and is left blank and
+counted separately. `--json` adds `price_hr`, `created`, `uptime` and `spend`.
 
 ### `mlink use NAME`
 Points this project at a machine (or, outside a project, sets the default).
@@ -243,7 +277,7 @@ authenticate to github.com as you, and therefore push to any repository you can 
 | `~/.config/mlink/known_hosts` | Host keys of your machines, dropped when they go |
 | `~/.config/mlink/agent.sock` | mlink's own ssh-agent: your key, bound to your machines and to github.com |
 | `~/.config/mlink/agent.json` | The routes that agent's key is currently bound to |
-| `~/.local/state/mlink/machines.json` | The registry: machines and per-project pointers |
+| `~/.local/state/mlink/machines.json` | The registry: machines, their price and start time, per-project pointers |
 | `~/.local/state/mlink/gpus.json` | The last `mlink gpus` listing, for row numbers |
 | `~/.ssh/config` | One managed block, one `Host` stanza per machine; everything outside the markers is untouched |
 | `~/.ssh/config.mlink.bak` | One-time backup, taken the first time the block is written |

@@ -53,7 +53,7 @@ def test_help_lists_the_commands_in_lifecycle_order_without_truncating():
     assert result.exit_code == 0
     listing = result.output.split("Commands:")[1].splitlines()
     names = [line.split()[0] for line in listing if line.startswith("  ") and line.strip()]
-    assert names[:8] == ["init", "gpus", "launch", "up", "ssh", "pull", "check", "down"]
+    assert names[:9] == ["init", "gpus", "launch", "up", "ssh", "push", "pull", "check", "down"]
     assert not any(line.rstrip().endswith("...") for line in listing)
 
 
@@ -434,3 +434,132 @@ def test_down_refuses_a_static_machine_and_another_projects_machine(
     monkeypatch.chdir(other)
     code, _ = mlink("down", "--yes")
     assert code == 2  # ptest belongs to the first project; no silent fallback inside a project
+
+
+# ---- what a marketplace, a meter and a working tree need ---------------------------------------
+
+
+def _with_vast(settings):
+    settings.path.write_text(settings.path.read_text() + "[providers.vast]\n")
+
+
+def _gone(body):
+    raise Fail(1, 'Vast answered 400: {"error":"invalid_args","msg":"no_such_ask"}')
+
+
+@pytest.fixture
+def no_wait(monkeypatch):
+    """These tests are about which offer gets taken, not about waiting for its address."""
+    monkeypatch.setattr(cli, "_wait_for_address", lambda handler, machine, timeout: machine)
+
+
+def test_a_taken_offer_falls_through_to_the_next_match(settings, project, http, no_wait):
+    """Vast turns over in seconds; an offer that is gone is not a reason to stop."""
+    _with_vast(settings)
+    fake = http({**VAST_ROUTES, ("PUT", "/asks/48480001/"): _gone})
+    code, _ = mlink("launch", "--provider", "vast", "--yes")
+    assert code == 0
+    assert fake.sent("PUT", "/asks/48480002/")  # the cheap one was taken, the next one was not
+    assert [m.id for m in Registry().machines.values() if m.provider == "vast"] == ["31200003"]
+
+
+def test_failover_never_reaches_past_the_filters_you_gave(settings, project, http):
+    """The fallbacks are the offers that already matched, so --max-price still binds."""
+    _with_vast(settings)
+    fake = http({**VAST_ROUTES, ("PUT", "/asks/48480001/"): _gone})
+    code, _ = mlink("launch", "--provider", "vast", "--max-price", "9", "--yes")
+    assert code == 2  # the only other offer is $17.60/hr and was never a candidate
+    assert not fake.sent("PUT", "/asks/48480002/")
+    assert not [m for m in Registry().machines.values() if m.provider == "vast"]
+
+
+def test_every_offer_taken_is_exit_2_with_nothing_created(settings, project, http):
+    _with_vast(settings)
+    routes = {**VAST_ROUTES}
+    for ask in ("48480001", "48480002"):
+        routes[("PUT", f"/asks/{ask}/")] = _gone
+    http(routes)
+    code, _ = mlink("launch", "--provider", "vast", "--yes")
+    assert code == 2
+    assert not [m for m in Registry().machines.values() if m.provider == "vast"]
+
+
+def test_a_named_offer_is_never_swapped_for_another_one(settings, project, http):
+    """You asked for that offer. Quietly renting a different one would be a surprise bill."""
+    _with_vast(settings)
+    http({**VAST_ROUTES, ("PUT", "/asks/48480002/"): _gone})
+    mlink("gpus", "--provider", "vast")
+    rows = json.loads(cli._rows_file().read_text())
+    row = 1 + next(i for i, o in enumerate(rows) if o["id"] == "48480002")
+    assert mlink("launch", str(row), "--yes")[0] == 2
+    assert not [m for m in Registry().machines.values() if m.provider == "vast"]
+
+
+def test_a_machine_mlink_rented_remembers_what_it_costs(settings, project, http, no_wait):
+    http({**PRIME_ROUTES, **VERDA_ROUTES})
+    mlink("gpus")
+    assert mlink("launch", "1", "--name", "t", "--yes")[0] == 0
+    machine = Registry().machines["t"]
+    assert machine.price_hr == json.loads(cli._rows_file().read_text())[0]["price_hr"]
+    assert machine.created and machine.uptime == "0m"
+    assert machine.spend is not None and machine.spend < 0.01
+
+
+def test_ls_shows_the_burn_rate_and_leaves_adopted_machines_unpriced(settings, project):
+    registry = Registry()
+    registry.add(
+        cli.Machine(
+            name="old",
+            host="203.0.113.7",
+            user="ubuntu",
+            provider="vast",
+            id="1",
+            port=17760,
+            price_hr=0.50,
+            created="2026-09-12T00:00:00+00:00",
+        ),
+        project,
+    )
+    registry.save()
+    code, output = mlink("ls")
+    assert code == 0
+    assert "0.50" in output and "$/hr" in output
+    assert "1 machines" not in output  # it is on camera in the README demo
+    assert "ubuntu@203.0.113.7:17760" in output  # the port rides with the host, not a column
+    assert "alex@192.168.1.50 " in output  # ... and a default port is not spelled out
+    entries = {m["name"]: m for m in json.loads(mlink("ls", "--json")[1])}
+    assert entries["workstation"]["price_hr"] is None  # a [[machines]] box has no meter
+    assert entries["workstation"]["spend"] is None and entries["workstation"]["uptime"] == ""
+    assert entries["old"]["spend"] > 0 and entries["old"]["uptime"].endswith("m")
+
+
+def test_push_sends_the_tree_up_without_what_git_ignores(
+    settings, project, calls, rented, isolated_home
+):
+    (isolated_home / "runs").mkdir()
+    code, _ = mlink("push")
+    assert code == 0
+    (argv,) = calls.matching("rsync")
+    assert argv[:4] == ["rsync", "-az", "--partial", "--filter=:- .gitignore"]
+    assert argv[-2:] == [str(isolated_home / "runs") + "/", "mlink-ptest:~/research/runs"]
+
+
+def test_push_names_a_local_path_that_is_not_there_rather_than_creating_it(
+    settings, project, calls, rented
+):
+    code, _ = mlink("push")  # 'local' is ~/runs and nothing made it
+    assert code == 1
+    assert not calls.matching("rsync")
+
+
+def test_push_and_pull_are_the_same_pairs_in_opposite_directions(
+    settings, project, calls, rented, isolated_home
+):
+    local = isolated_home / "runs"
+    local.mkdir()
+    mlink("push", "--delete")
+    mlink("pull", "--delete")
+    up, down = calls.matching("rsync")
+    assert up[-2:] == [f"{local}/", "mlink-ptest:~/research/runs"]
+    assert down[-2:] == ["mlink-ptest:~/research/runs/", str(local)]
+    assert "--delete" in up and "--delete" in down

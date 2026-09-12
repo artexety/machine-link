@@ -5,12 +5,17 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from .ui import Fail
 
 STATIC = "static"
 #: Names become ssh Host patterns, so they must be safe as one.
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
+
+
+def now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def valid_name(name: str) -> str:
@@ -36,8 +41,33 @@ class Machine:
     gpu: str = ""
     region: str = ""
     status: str = ""
+    price_hr: float | None = None
+    #: When mlink created it, ISO 8601 in UTC. Empty for a machine it merely adopted.
+    created: str = ""
     #: Paths of the repos `up` deployed here, so `down` can check them from any directory.
     repos: list[str] = field(default_factory=list)
+
+    @property
+    def hours(self) -> float | None:
+        """How long it has been billing, when mlink is the one that started the clock."""
+        try:
+            started = datetime.fromisoformat(self.created)
+        except ValueError:
+            return None
+        return (datetime.now(UTC) - started).total_seconds() / 3600
+
+    @property
+    def uptime(self) -> str:
+        if (hours := self.hours) is None:
+            return ""
+        minutes = int(hours * 60)
+        return f"{minutes // 60}h{minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m"
+
+    @property
+    def spend(self) -> float | None:
+        """What it has cost so far. Unknown for an adopted machine, or one with no price."""
+        hours = self.hours
+        return None if hours is None or self.price_hr is None else self.price_hr * hours
 
     @property
     def alias(self) -> str:
