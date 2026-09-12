@@ -12,8 +12,10 @@ from .models import Machine, valid_name
 from .ui import Fail, warn
 
 PROJECT_FILE = "mlink.toml"
-#: Kept here rather than imported from machine_link.agent, which reads the config itself.
-FORWARD_MODES = ("constrained", "always", "never")
+#: How much of your agent a rented machine is shown. Defined here, where the config is read,
+#: so machine_link.agent and machine_link.remote can both name them without a cycle.
+CONSTRAINED, ALWAYS, NEVER = "constrained", "always", "never"
+FORWARD_MODES = (CONSTRAINED, ALWAYS, NEVER)
 
 
 @dataclass(slots=True)
@@ -23,7 +25,7 @@ class Ssh:
     connect_timeout: int = 5
     reachability_timeout: int = 900
     #: How much of your agent a rented machine gets to see. See machine_link.agent.
-    forward_agent: str = "constrained"
+    forward_agent: str = CONSTRAINED
 
     @property
     def key(self) -> Path:

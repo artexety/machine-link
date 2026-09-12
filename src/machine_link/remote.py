@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import Git, Project, Repo, Settings, Sync
+from .config import CONSTRAINED, NEVER, Git, Project, Repo, Settings, Sync
 from .models import Machine
 from .ui import OPTS, Fail, err, step, warn
 
@@ -140,7 +140,8 @@ def wait_reachable(machine: Machine, settings: Settings, key_hint: str) -> None:
         if result.ok:
             return
         if "permission denied" in result.text.lower():
-            rejecting_since = rejecting_since or time.monotonic()
+            if rejecting_since is None:  # not `or`: a monotonic clock may legitimately read 0
+                rejecting_since = time.monotonic()
             if time.monotonic() - rejecting_since >= KEY_GRACE:
                 raise Fail(3, f"{machine.host} kept rejecting the key for {KEY_GRACE}s", key_hint)
         else:
@@ -160,7 +161,7 @@ def check_chain(machine: Machine, mode: str) -> None:
     mlink never copies a key or token to a machine; the forwarded agent is the only way the box
     reaches GitHub, so without it there is nothing else to try.
     """
-    if mode == "never":
+    if mode == NEVER:
         with step("agent forwarding on the machine") as st:
             st.note = 'off: ssh.forward_agent = "never"'
         return
@@ -178,7 +179,7 @@ def check_chain(machine: Machine, mode: str) -> None:
             raise Fail(
                 4,
                 "forwarding works, but GitHub denied the key from the machine",
-                CONSTRAINED_HINT if mode == "constrained" else FIX_LOCAL_AGENT,
+                CONSTRAINED_HINT if mode == CONSTRAINED else FIX_LOCAL_AGENT,
             )
 
 
@@ -301,21 +302,18 @@ def repo_state(machine: Machine, repo: Repo) -> RepoState:
     )
 
 
-def pull(machine: Machine, mapping: Sync, *, delete: bool) -> Result:
-    """Mirror the remote path's contents into the local one."""
-    local = Path(mapping.local).expanduser()
-    local.mkdir(parents=True, exist_ok=True)
-    argv = ["rsync", "-az", "--partial", *(["--delete"] if delete else [])]
-    return run([*argv, f"{machine.alias}:{mapping.remote.rstrip('/')}/", str(local)], stream=True)
+def sync(machine: Machine, mapping: Sync, *, delete: bool, up: bool) -> Result:
+    """Mirror one side of a [[sync]] pair onto the other.
 
-
-def push(machine: Machine, mapping: Sync, *, delete: bool) -> Result:
-    """Mirror the local path's contents into the remote one, minus whatever git ignores.
-
-    The gitignore filter is what makes this usable on a working tree: it is the difference
-    between sending your source and sending your virtualenv and your checkpoints. `pull` has
-    no such filter, because a results directory is not a source tree.
+    Going up, every .gitignore in the tree is honoured: that is the difference between sending
+    your source and sending your virtualenv. Coming down there is no such filter, because a
+    results directory is not a source tree.
     """
-    local = str(Path(mapping.local).expanduser()).rstrip("/")
-    argv = ["rsync", "-az", "--partial", GITIGNORE, *(["--delete"] if delete else [])]
-    return run([*argv, f"{local}/", f"{machine.alias}:{mapping.remote}"], stream=True)
+    local = Path(mapping.local).expanduser()
+    there = f"{machine.alias}:{mapping.remote.rstrip('/')}"
+    argv = ["rsync", "-az", "--partial", *([GITIGNORE] if up else [])]
+    argv += ["--delete"] if delete else []
+    if up:
+        return run([*argv, f"{local}/", there], stream=True)
+    local.mkdir(parents=True, exist_ok=True)
+    return run([*argv, f"{there}/", str(local)], stream=True)

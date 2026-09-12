@@ -19,12 +19,11 @@ import re
 from pathlib import Path
 
 from . import remote
-from .config import Settings
+from .config import ALWAYS, CONSTRAINED, NEVER, Settings
 from .models import Machine
 from .sshconf import known_hosts
 from .ui import Fail
 
-CONSTRAINED, ALWAYS, NEVER = "constrained", "always", "never"
 #: Destination constraints, and the session-bind messages that prove a route, arrived in 8.9.
 MIN_OPENSSH = (8, 9)
 SOCKET = "~/.config/mlink/agent.sock"
@@ -77,8 +76,6 @@ def _running(sock: Path) -> bool:
 
 
 def _start(sock: Path) -> None:
-    if _running(sock):
-        return
     sock.unlink(missing_ok=True)  # a socket left behind by an agent that is gone
     if not remote.run(["ssh-agent", "-a", str(sock)]).ok:
         raise Fail(
@@ -116,10 +113,12 @@ def ensure(machines: list[Machine], settings: Settings) -> None:
         return
     sock = socket_path()
     sock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _start(sock)
-    if _state_path().is_file() and json.loads(_state_path().read_text()) == routes:
-        if _running(sock):
+    if _running(sock):
+        # Reloading costs a passphrase prompt, so it happens only when the routes changed.
+        if _state_path().is_file() and json.loads(_state_path().read_text()) == routes:
             return
+    else:
+        _start(sock)  # a new agent holds nothing, whatever the state file remembers
     argv = ["ssh-add", "-H", str(known_hosts()), "-H", str(user_hosts)]
     for route in routes:
         argv += ["-h", route]

@@ -237,7 +237,7 @@ def init(
         _link(state)
         state.registry.save()
         st.note = f"{len(state.registry.machines)} machines, forward_agent {mode}"
-    if mode == agent.CONSTRAINED and agent.openssh_version() < agent.MIN_OPENSSH:
+    if mode == config.CONSTRAINED and agent.openssh_version() < agent.MIN_OPENSSH:
         warn(
             "this OpenSSH cannot bind a forwarded key to a route (8.9 added it), so 'mlink up' "
             f'will stop and ask you to set ssh.forward_agent = "always" in {path}'
@@ -317,15 +317,10 @@ def gpus(
     _rows_file().parent.mkdir(parents=True, exist_ok=True)
     _rows_file().write_text(json.dumps([asdict(o) for o in shown]))
     if as_json:
-        out.print(
-            json.dumps(
-                [
-                    {"row": i, **asdict(o), "gpu_parsed": asdict(o.card)}
-                    for i, o in enumerate(shown, 1)
-                ],
-                indent=2,
-            )
-        )
+        rows = [
+            {"row": i, **asdict(o), "gpu_parsed": asdict(o.card)} for i, o in enumerate(shown, 1)
+        ]
+        out.print(json.dumps(rows, indent=2))
         return
     if not shown:
         say(
@@ -588,36 +583,7 @@ def push(
     The same pairs 'pull' brings down, travelling the other way. Anything your .gitignore files
     exclude stays here, so a working tree can be sent without its artefacts.
     """
-    state = _load()
-    if not state.project.sync:
-        raise Fail(2, "no [[sync]] entries in mlink.toml", "add remote/local pairs, then retry")
-    machine = _machine(state, target)
-    failed = 0
-    for mapping in state.project.sync:
-        with step(f"push {mapping.local}") as st:
-            local = Path(mapping.local).expanduser()
-            if not local.is_dir():
-                failed += 1
-                st.fail(f"{local} is not a directory here")
-                continue
-            result = remote.push(machine, mapping, delete=delete)
-            if result.ok:
-                st.note = mapping.remote
-                continue
-            failed += 1
-            st.fail(remote.short(result.text) or "rsync failed")
-            _no_rsync(result)
-    if failed == len(state.project.sync):
-        raise Fail(1, "every sync mapping failed", "check the paths over 'mlink ssh'")
-
-
-def _no_rsync(result: remote.Result) -> None:
-    if "command not found" in result.text or "status 127" in result.text:
-        raise Fail(
-            1,
-            "the machine has no rsync",
-            "add 'sudo apt-get install -y rsync' to [provision] commands, then rerun 'mlink up'",
-        )
+    _sync(target, delete=delete, up=True)
 
 
 @app.command()
@@ -628,22 +594,39 @@ def pull(
     ] = False,
 ) -> None:
     """Rsync the [[sync]] paths back."""
+    _sync(target, delete=delete, up=False)
+
+
+def _sync(target: str | None, *, delete: bool, up: bool) -> None:
+    """Both directions of the [[sync]] pairs. One mapping failing is reported on its own line;
+    only every mapping failing is an error, because the others may be what you wanted."""
     state = _load()
     if not state.project.sync:
         raise Fail(2, "no [[sync]] entries in mlink.toml", "add remote/local pairs, then retry")
     machine = _machine(state, target)
     failed = 0
     for mapping in state.project.sync:
-        with step(f"pull {mapping.remote}") as st:
-            result = remote.pull(machine, mapping, delete=delete)
+        local = Path(mapping.local).expanduser()
+        with step(f"{'push' if up else 'pull'} {mapping.local if up else mapping.remote}") as st:
+            if up and not local.is_dir():
+                failed += 1
+                st.fail(f"{local} is not a directory here")
+                continue
+            result = remote.sync(machine, mapping, delete=delete, up=up)
             if result.ok:
-                st.note = str(Path(mapping.local).expanduser())
+                st.note = mapping.remote if up else str(local)
                 continue
             failed += 1
             st.fail(remote.short(result.text) or "rsync failed")
-            _no_rsync(result)
+            if "command not found" in result.text or "status 127" in result.text:
+                raise Fail(
+                    1,
+                    "the machine has no rsync",
+                    "add 'sudo apt-get install -y rsync' to [provision] commands, "
+                    "then rerun 'mlink up'",
+                )
     if failed == len(state.project.sync):
-        raise Fail(1, "every sync mapping failed", "check the remote paths over 'mlink ssh'")
+        raise Fail(1, "every sync mapping failed", "check the paths over 'mlink ssh'")
 
 
 @app.command()
@@ -792,21 +775,12 @@ def ls(
         state.registry.current
     )
     if as_json:
-        out.print(
-            json.dumps(
-                [
-                    {
-                        **asdict(m),
-                        "current": m is marked,
-                        "uptime": m.uptime,
-                        "spend": m.spend,
-                        "gpu_parsed": asdict(m.card),
-                    }
-                    for m in machines
-                ],
-                indent=2,
-            )
-        )
+        entries = [
+            {**asdict(m), "current": m is marked, "gpu_parsed": asdict(m.card)}
+            | {"uptime": m.uptime, "spend": m.spend}
+            for m in machines
+        ]
+        out.print(json.dumps(entries, indent=2))
         return
     if not machines:
         say("no machines yet: 'mlink up <target>', 'mlink launch', or [[machines]] in the config")
@@ -833,11 +807,10 @@ def ls(
 
 def _burn(machines: list[Machine]) -> str:
     """What the fleet costs. Silent about machines mlink did not rent, which it cannot price."""
-    rate = sum(m.price_hr or 0.0 for m in machines)
-    spent = sum(m.spend or 0.0 for m in machines)
     priced = [m for m in machines if m.price_hr is not None]
-    line = f"{len(machines)} machine" + ("s" if len(machines) != 1 else "")
+    line = f"{len(machines)} machine" + "s" * (len(machines) != 1)
     if priced:
+        rate, spent = sum(m.price_hr for m in priced), sum(m.spend or 0.0 for m in priced)
         line += f", ${rate:.2f}/hr, ${spent:.2f} so far"
     if len(priced) < len(machines):
         line += f"; {len(machines) - len(priced)} with no price mlink knows"

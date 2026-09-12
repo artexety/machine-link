@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from machine_link import agent, config, sshconf
+from machine_link import agent, config, remote, sshconf
 from machine_link.models import Machine
 from machine_link.ui import Fail
 from tests.test_cli import mlink
@@ -74,6 +74,32 @@ def test_a_second_run_reloads_nothing_while_the_routes_are_the_same(settings, mo
     assert not modern.matching("ssh-add -H")
     agent.ensure([TRAINER, PROXIED], settings)
     assert modern.matching("ssh-add -H")
+
+
+def test_an_agent_that_died_gets_the_key_again_however_current_the_routes_look(
+    settings, modern, monkeypatch
+):
+    """A restarted agent holds nothing, so the routes it last held are evidence of nothing.
+
+    The telling detail is that a fresh agent answers 'running, no identities', which looks
+    exactly like a healthy one to anything that only asks whether an agent is there.
+    """
+    agent.ensure([TRAINER], settings)  # loads the key and records the routes
+    modern.clear()
+    honest, started = remote.run, []
+
+    def run(argv, **kwargs):
+        joined = " ".join(argv)
+        if joined.startswith("ssh-agent -a"):
+            started.append(joined)
+        if joined.startswith("ssh-add -l"):
+            return remote.Result(1 if started else 2)  # gone, then up but holding nothing
+        return honest(argv, **kwargs)
+
+    monkeypatch.setattr(remote, "run", run)
+    agent.ensure([TRAINER], settings)
+    assert started, "the stale socket was not noticed"
+    assert modern.matching("ssh-add -H"), "the key was not loaded into the new agent"
 
 
 @pytest.mark.parametrize("mode", ["always", "never"])
