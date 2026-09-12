@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 from ..config import Settings
 from ..models import Filters, Machine, Offer
 from ..ui import Fail
-from . import http, number, pubkey_text, same_key, secret
+from . import Gone, http, number, pubkey_text, same_key, secret
 
 API = "https://console.vast.ai/api"
 WHERE = "cloud.vast.ai > Account > Keys"
@@ -123,11 +123,7 @@ class Vast:
         except Fail as exc:
             if "no_such_ask" not in exc.message:
                 raise
-            raise Fail(
-                2,
-                f"offer {offer.id} was rented by someone else meanwhile",
-                "run 'mlink gpus' again and pick another row",
-            ) from None
+            raise Gone(offer.id) from None
         if not created.get("new_contract"):
             raise Fail(
                 1,

@@ -18,7 +18,7 @@ from rich.table import Table
 
 from . import __version__, agent, config, providers, remote, sshconf
 from .config import Project, Repo, Settings
-from .models import STATIC, Filters, Machine, Offer, looks_like_target, valid_name
+from .models import STATIC, Filters, Machine, Offer, looks_like_target, now, valid_name
 from .registry import Registry, state_dir, unique_name
 from .ui import OPTS, Fail, err, out, report, say, step, warn
 
@@ -286,6 +286,11 @@ def _offers(state: State, only: str | None, spot: bool, filters: Filters) -> lis
     return sorted(found, key=lambda o: (not o.available, o.price_hr is None, o.price_hr or 0.0))
 
 
+#: How many taken offers to walk past before giving up, so a bad day cannot spend its way
+#: down the whole listing.
+ATTEMPTS = 3
+
+
 def _rows_file() -> Path:
     return state_dir() / "gpus.json"
 
@@ -371,22 +376,17 @@ def launch(
     machine is registered and gets its ssh alias the moment the provider returns an id.
     """
     state = _load()
-    chosen = _pick(state, offer, Filters(gpu, region, max_price, gpu_count), provider, spot)
-    handler = providers.get(state.settings, chosen.provider)
-    machine_name = valid_name(
-        name or unique_name(f"{chosen.provider}-{chosen.gpu}", state.registry.machines)
-    )
-    out.print(f"{machine_name}: {chosen.describe()}")
+    candidates = _pick(state, offer, Filters(gpu, region, max_price, gpu_count), provider, spot)[
+        :ATTEMPTS
+    ]
+    out.print(f"{_name_for(state, candidates[0], name)}: {candidates[0].describe()}")
     if dry_run:
         say("dry run: nothing was created")
         return
+    if len(candidates) > 1:
+        say(f"{len(candidates) - 1} more matching offers, in case this one is taken meanwhile")
     _confirm("create it", yes)
-    with step(f"create {machine_name} at {chosen.provider}") as st:
-        machine = handler.launch(chosen, machine_name, spot=spot)
-        # Registered before anything else can go wrong: an unregistered machine still bills.
-        state.registry.add(machine, state.project.dir)
-        state.registry.save()
-        st.note = machine.id
+    machine, handler = _create(state, candidates, name, spot)
     with step("waiting for an address") as st:
         machine = _wait_for_address(handler, machine, 3 * state.settings.ssh.reachability_timeout)
         state.registry.add(machine, state.project.dir)
@@ -398,16 +398,55 @@ def launch(
         up(target=machine.name, name=None, skip_provision=False)
 
 
-def _pick(state: State, arg: str | None, filters: Filters, only: str | None, spot: bool) -> Offer:
-    """A row of the last listing, an offer id, or the cheapest available match."""
+def _name_for(state: State, offer: Offer, name: str | None) -> str:
+    return valid_name(name or unique_name(f"{offer.provider}-{offer.gpu}", state.registry.machines))
+
+
+def _create(
+    state: State, candidates: list[Offer], name: str | None, spot: bool
+) -> tuple[Machine, providers.Provider]:
+    """Create the first candidate still on the market.
+
+    A marketplace offer can be taken between the listing and the create, which is not a reason
+    to stop when another offer matched the same filters. Only a provider that says plainly that
+    it created nothing lets the next one be tried: a maybe would risk paying for two machines.
+    """
+    for index, chosen in enumerate(candidates):
+        handler = providers.get(state.settings, chosen.provider)
+        machine_name = _name_for(state, chosen, name)
+        if index:
+            out.print(f"{machine_name}: {chosen.describe()}")
+        with step(f"create {machine_name} at {chosen.provider}") as st:
+            try:
+                machine = handler.launch(chosen, machine_name, spot=spot)
+            except providers.Gone as exc:
+                st.fail(exc.message)
+                continue
+            machine.price_hr, machine.created = chosen.price_hr, now()
+            # Registered before anything else can go wrong: an unregistered machine still bills.
+            state.registry.add(machine, state.project.dir)
+            state.registry.save()
+            st.note = machine.id
+            return machine, handler
+    raise Fail(
+        2,
+        f"all {len(candidates)} matching offers were taken while launching",
+        "run 'mlink gpus' again; a busy marketplace turns over in seconds",
+    )
+
+
+def _pick(
+    state: State, arg: str | None, filters: Filters, only: str | None, spot: bool
+) -> list[Offer]:
+    """A row of the last listing, an offer id, or every available match, cheapest first."""
     rows = json.loads(_rows_file().read_text()) if _rows_file().is_file() else []
     if arg and arg.isdigit() and 1 <= int(arg) <= len(rows):
-        return Offer(**rows[int(arg) - 1])
+        return [Offer(**rows[int(arg) - 1])]
     if arg:
         filters.id, filters.cpu = arg, True  # an explicit id may name a CPU instance
     offers = [o for o in _offers(state, only, spot, filters) if o.available]
     if offers:
-        return offers[0]
+        return offers[:1] if arg else offers  # you named this offer; no other one will do
     if arg:
         raise Fail(
             2,
@@ -426,6 +465,7 @@ def _wait_for_address(handler: providers.Provider, machine: Machine, timeout: in
             if fresh.id == machine.id and fresh.host:
                 fresh.name = machine.name
                 fresh.gpu, fresh.region = machine.gpu or fresh.gpu, machine.region or fresh.region
+                fresh.price_hr, fresh.created = machine.price_hr, machine.created
                 return fresh
         time.sleep(10)
     raise Fail(
@@ -514,6 +554,50 @@ def ssh(ctx: typer.Context, target: TargetArg = None) -> None:
 
 
 @app.command()
+def push(
+    target: TargetArg = None,
+    delete: Annotated[
+        bool, typer.Option("--delete", help="Delete remote files gone locally.")
+    ] = False,
+) -> None:
+    """Rsync the [[sync]] paths up.
+
+    The same pairs 'pull' brings down, travelling the other way. Anything your .gitignore files
+    exclude stays here, so a working tree can be sent without its artefacts.
+    """
+    state = _load()
+    if not state.project.sync:
+        raise Fail(2, "no [[sync]] entries in mlink.toml", "add remote/local pairs, then retry")
+    machine = _machine(state, target)
+    failed = 0
+    for mapping in state.project.sync:
+        with step(f"push {mapping.local}") as st:
+            local = Path(mapping.local).expanduser()
+            if not local.is_dir():
+                failed += 1
+                st.fail(f"{local} is not a directory here")
+                continue
+            result = remote.push(machine, mapping, delete=delete)
+            if result.ok:
+                st.note = mapping.remote
+                continue
+            failed += 1
+            st.fail(remote.short(result.text) or "rsync failed")
+            _no_rsync(result)
+    if failed == len(state.project.sync):
+        raise Fail(1, "every sync mapping failed", "check the paths over 'mlink ssh'")
+
+
+def _no_rsync(result: remote.Result) -> None:
+    if "command not found" in result.text or "status 127" in result.text:
+        raise Fail(
+            1,
+            "the machine has no rsync",
+            "add 'sudo apt-get install -y rsync' to [provision] commands, then rerun 'mlink up'",
+        )
+
+
+@app.command()
 def pull(
     target: TargetArg = None,
     delete: Annotated[
@@ -534,13 +618,7 @@ def pull(
                 continue
             failed += 1
             st.fail(remote.short(result.text) or "rsync failed")
-            if "command not found" in result.text or "status 127" in result.text:
-                raise Fail(
-                    1,
-                    "the machine has no rsync",
-                    "add 'sudo apt-get install -y rsync' to [provision] commands, "
-                    "then rerun 'mlink up'",
-                )
+            _no_rsync(result)
     if failed == len(state.project.sync):
         raise Fail(1, "every sync mapping failed", "check the remote paths over 'mlink ssh'")
 
@@ -691,25 +769,50 @@ def ls(
         state.registry.current
     )
     if as_json:
-        out.print(json.dumps([{**asdict(m), "current": m is marked} for m in machines], indent=2))
+        out.print(
+            json.dumps(
+                [
+                    {**asdict(m), "current": m is marked, "uptime": m.uptime, "spend": m.spend}
+                    for m in machines
+                ],
+                indent=2,
+            )
+        )
         return
     if not machines:
         say("no machines yet: 'mlink up <target>', 'mlink launch', or [[machines]] in the config")
         return
     table = Table(box=None, pad_edge=False)
-    for column in ("", "name", "provider", "user@host", "port", "gpu", "status"):
-        table.add_column(column)
+    # The port rides along with the host rather than taking a column of its own: two more
+    # columns would otherwise truncate the address on an 80-column terminal.
+    for column in ("", "name", "provider", "user@host", "gpu", "status", "$/hr", "up"):
+        table.add_column(column, justify="right" if column == "$/hr" else "left")
     for m in machines:
         table.add_row(
             "*" if m is marked else "",
             m.name,
             m.provider,
-            f"{m.user}@{m.host or '?'}",
-            str(m.port),
+            f"{m.user}@{m.host or '?'}" + (f":{m.port}" if m.port != 22 else ""),
             m.gpu,
             m.status,
+            "" if m.price_hr is None else f"{m.price_hr:.2f}",
+            m.uptime,
         )
     out.print(table)
+    say(_burn(machines))
+
+
+def _burn(machines: list[Machine]) -> str:
+    """What the fleet costs. Silent about machines mlink did not rent, which it cannot price."""
+    rate = sum(m.price_hr or 0.0 for m in machines)
+    spent = sum(m.spend or 0.0 for m in machines)
+    priced = [m for m in machines if m.price_hr is not None]
+    line = f"{len(machines)} machine" + ("s" if len(machines) != 1 else "")
+    if priced:
+        line += f", ${rate:.2f}/hr, ${spent:.2f} so far"
+    if len(priced) < len(machines):
+        line += f"; {len(machines) - len(priced)} with no price mlink knows"
+    return line
 
 
 def _refresh(state: State) -> None:

@@ -10,9 +10,15 @@ dest = "~/research"                # path on the machine; ~ is expanded there
 branch = ""                        # optional; empty = the default branch
 post_clone = ["uv sync"]           # shell commands, run in dest after clone or pull
 
-[[sync]]                           # used by 'mlink pull'
-remote = "~/research/runs"
+# Pairs for 'mlink push' (local to remote, minus whatever .gitignore excludes) and
+# 'mlink pull' (remote to local). The same pair travels both ways.
+[[sync]]
+remote = "~/research/runs"         # results come back from here
 local = "~/runs"
+
+# [[sync]]                         # and to send a working tree up without committing it
+# remote = "~/research"
+# local = "."
 
 [provision]                        # run before the repos, in order
 commands = [
