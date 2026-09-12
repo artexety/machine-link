@@ -8,11 +8,11 @@ One command to prepare a rented or local machine for work.
 <p align="center">
   <a href="https://raw.githubusercontent.com/artexety/machine-link/main/mlink-demo.gif"><img
     src="https://raw.githubusercontent.com/artexety/machine-link/main/mlink-demo.gif" width="100%"
-    alt="mlink gpus lists L40S offers from all three providers under one parsed name, mlink launch rents row 1 and prepares it with a route-bound agent, mlink ls shows what it costs per hour and so far, mlink down refuses to destroy a machine holding unpushed commits"
+    alt="mlink gpus lists live offers from three providers, mlink launch rents row 1 and prepares it, mlink ls shows what it is costing, mlink down refuses to destroy a machine holding unpushed commits"
   ></a>
 </p>
 
-It rents from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and [Verda](https://verda.com), on demand from all three and spot or interruptible from Vast and Verda, or adopts any machine you can already ssh to. Nothing is installed on the box and there is no daemon: mlink wraps the system `ssh`, `scp` and `rsync`, and leaves the machine reachable by every tool that already speaks ssh. One provider calls a card `RTX6000Ada_48GB` and another calls it `1x RTX 6000 Ada 48GB`; mlink parses both and shows and filters on the one name.
+It rents from [Prime Intellect](https://www.primeintellect.ai), [Vast.ai](https://vast.ai) and [Verda](https://verda.com), on demand from all three and spot or interruptible from Vast and Verda, or adopts any machine you can already ssh to. Nothing is installed on the box and there is no daemon: mlink wraps the system `ssh`, `scp` and `rsync`, and leaves the machine reachable by every tool that already speaks ssh.
 
 ```bash
 mlink gpus --gpu a100 --max-price 2    # what your providers rent right now, cheapest first
@@ -81,9 +81,7 @@ Host trainer mlink-trainer
     StrictHostKeyChecking accept-new
 ```
 
-Everything mlink does goes through that stanza, and so does `ssh trainer` from git, rsync or VS Code Remote-SSH. Host keys of rented machines live in mlink's own file and are deleted with the machine, so a recycled address never triggers a warning. Each project remembers its own machine, so two projects never mix up boxes, and `down` refuses to destroy one holding uncommitted or unpushed work. A machine it cannot reach counts as unsafe.
-
-A rented box is someone else's hardware, and a forwarded agent socket lets whoever has root on it sign as you. mlink still copies no key and no token onto a machine, but it does not hand over your own agent either: it keeps a second one at `~/.config/mlink/agent.sock` holding your key with OpenSSH destination constraints, and forwards that. What the box can do with the socket is authenticate to github.com, from that machine, while you are connected, and nothing else. That last window is real, and `ssh.forward_agent` takes `always` for an old image or `never` to close it entirely. [DOCS.md](https://github.com/artexety/machine-link/blob/main/DOCS.md#agent-forwarding) has the whole tradeoff.
+Everything mlink does goes through that stanza, and so does `ssh trainer` from git, rsync or VS Code Remote-SSH. The agent it forwards is not yours but mlink's own, holding your key bound to that machine and its hop to GitHub, so no key or token is ever copied anywhere and root on the box can do nothing else with the socket ([the tradeoff in full](https://github.com/artexety/machine-link/blob/main/DOCS.md#agent-forwarding)). Host keys of rented machines live in mlink's own file and are deleted with the machine, so a recycled address never triggers a warning. Each project remembers its own machine, so two projects never mix up boxes, and `down` refuses to destroy one holding uncommitted or unpushed work. A machine it cannot reach counts as unsafe.
 
 Every command, flag and exit code is in [DOCS.md](https://github.com/artexety/machine-link/blob/main/DOCS.md); annotated copies of both config files are in [examples/](https://github.com/artexety/machine-link/tree/main/examples).
 
