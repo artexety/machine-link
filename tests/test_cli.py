@@ -8,7 +8,7 @@ import time
 import pytest
 from typer.testing import CliRunner
 
-from machine_link import cli, config, sshconf
+from machine_link import cli, config, remote, sshconf
 from machine_link.registry import Registry
 from machine_link.ui import Fail
 from tests.conftest import CLEAN, DIRTY, PUBKEY, UNPUSHED
@@ -133,12 +133,34 @@ def test_up_stops_at_the_forwarding_check_with_exit_4(settings, project, calls):
 
 
 def test_up_reports_a_rejected_key_as_exit_3_with_the_providers_fix(
-    settings, project, calls, rented
+    settings, project, calls, rented, fast_clock
 ):
     calls.answer(" true", code=255, stderr="ubuntu@203.0.113.7: Permission denied (publickey).")
     result = runner.invoke(cli.app, ["up"])
     assert isinstance(result.exception, Fail)
     assert result.exception.code == 3 and "mlink init" in result.exception.fix
+    # It gave up on the key well before the reachability timeout, but not on the first refusal.
+    assert remote.KEY_GRACE <= fast_clock[0] < settings.ssh.reachability_timeout
+
+
+def test_a_fresh_image_may_refuse_the_key_for_a_minute_before_it_is_believed(
+    settings, project, healthy, fast_clock, monkeypatch
+):
+    """Vast brings sshd up before the account's keys land, and refuses for about a minute.
+
+    This cost a real rented machine on 2026-09-12: 'up' aborted on the first refusal and the
+    box was perfectly good.
+    """
+    honest = remote.run
+
+    def run(argv, **kwargs):
+        if argv[-1] == "true" and fast_clock[0] < 60:  # the reachability probe, still booting
+            return remote.Result(255, "", "root@203.0.113.7: Permission denied (publickey).")
+        return honest(argv, **kwargs)
+
+    monkeypatch.setattr(remote, "run", run)
+    assert mlink("up", "root@203.0.113.7", "--name", "t")[0] == 0
+    assert healthy.matching("git clone")  # it waited, then went all the way through
 
 
 def test_up_without_a_project_deploys_nothing(settings, healthy, tmp_path, monkeypatch):

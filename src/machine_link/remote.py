@@ -19,6 +19,9 @@ from .models import Machine
 from .ui import OPTS, Fail, err, step, warn
 
 GITHUB_OK = "successfully authenticated"
+#: How long a fresh machine may go on refusing the key before mlink believes it. Vast's base
+#: image answered "Permission denied" for ~60s on 2026-09-12 while its sshd waited for the keys.
+KEY_GRACE = 120
 #: A per-directory merge of every .gitignore in the tree, which macOS's openrsync honours too.
 GITIGNORE = "--filter=:- .gitignore"
 MARK = "--mlink--"
@@ -121,16 +124,27 @@ def github_greets_locally() -> bool:
 
 
 def wait_reachable(machine: Machine, settings: Settings, key_hint: str) -> None:
-    """Poll until the machine accepts a batch login. A rejected key aborts at once."""
+    """Poll until the machine accepts a batch login. A key it keeps rejecting aborts early.
+
+    One rejection proves nothing. A fresh image brings sshd up before the provider has written
+    the account's keys, and answers "Permission denied" in the gap: Vast does it for about a
+    minute. Rejections are therefore tolerated for KEY_GRACE seconds, which still fails a
+    genuinely wrong key long before the reachability timeout.
+    """
     every = settings.ssh.connect_timeout
     argv = ["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={every}", machine.alias, "true"]
     deadline = time.monotonic() + settings.ssh.reachability_timeout
+    rejecting_since = None
     while True:
         result = run(argv, timeout=every + 10)
         if result.ok:
             return
         if "permission denied" in result.text.lower():
-            raise Fail(3, f"{machine.host} rejected the key", key_hint)
+            rejecting_since = rejecting_since or time.monotonic()
+            if time.monotonic() - rejecting_since >= KEY_GRACE:
+                raise Fail(3, f"{machine.host} kept rejecting the key for {KEY_GRACE}s", key_hint)
+        else:
+            rejecting_since = None  # it stopped answering at all; that is a different wait
         if time.monotonic() >= deadline:
             raise Fail(
                 3,
