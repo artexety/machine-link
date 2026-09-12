@@ -8,7 +8,7 @@ One command to prepare a rented or local machine for work.
 <p align="center">
   <a href="https://raw.githubusercontent.com/artexety/machine-link/main/mlink-demo.gif"><img
     src="https://raw.githubusercontent.com/artexety/machine-link/main/mlink-demo.gif" width="100%"
-    alt="mlink gpus lists live offers from three providers, mlink launch rents row 1 and prepares it, mlink down refuses to destroy a machine holding unpushed commits"
+    alt="mlink gpus lists L40S offers from all three providers under one parsed name, mlink launch rents row 1 and prepares it with a route-bound agent, mlink ls shows what it costs per hour and so far, mlink down refuses to destroy a machine holding unpushed commits"
   ></a>
 </p>
 
