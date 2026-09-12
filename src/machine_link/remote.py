@@ -6,6 +6,7 @@ shell exactly, and the Host stanza mlink writes is the only ssh configuration th
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -19,6 +20,15 @@ from .ui import OPTS, Fail, err, step, warn
 
 GITHUB_OK = "successfully authenticated"
 MARK = "--mlink--"
+FIX_LOCAL_AGENT = "run 'mlink init' here; usually the local agent lost the key"
+#: A constrained key needs the machine's own ssh client to prove the second hop, which is what
+#: OpenSSH 8.9 added. An older image forwards the socket fine and is then refused by the agent.
+CONSTRAINED_HINT = (
+    "the machine's OpenSSH may be older than 8.9 and unable to use a route-bound key; "
+    "check with 'mlink ssh -- ssh -V', then either use a newer image or set "
+    'ssh.forward_agent = "always" in the config, which lets root on that machine '
+    "authenticate as you while you are connected"
+)
 
 
 @dataclass(slots=True)
@@ -36,13 +46,25 @@ class Result:
         return self.stdout + self.stderr
 
 
-def run(argv: list[str], *, timeout: int | None = None, stream: bool = False) -> Result:
+def run(
+    argv: list[str],
+    *,
+    timeout: int | None = None,
+    stream: bool = False,
+    env: dict[str, str] | None = None,
+) -> Result:
     """Run a local command. Output is captured, except that `stream` lets it through under -v."""
     if OPTS.verbose:
         err.print(f"$ {shlex.join(argv)}", style="dim", markup=False)
     live = stream and OPTS.verbose
     try:
-        proc = subprocess.run(argv, capture_output=not live, text=True, timeout=timeout)
+        proc = subprocess.run(
+            argv,
+            capture_output=not live,
+            text=True,
+            timeout=timeout,
+            env={**os.environ, **env} if env else None,
+        )
     except FileNotFoundError:
         raise Fail(2, f"{argv[0]} is not on PATH", f"install {argv[0]} and retry") from None
     except subprocess.TimeoutExpired:
@@ -116,26 +138,31 @@ def wait_reachable(machine: Machine, settings: Settings, key_hint: str) -> None:
         time.sleep(5)
 
 
-def check_chain(machine: Machine) -> None:
+def check_chain(machine: Machine, mode: str) -> None:
     """Agent forwarding works, and GitHub answers from the box through it.
 
     mlink never copies a key or token to a machine; the forwarded agent is the only way the box
     reaches GitHub, so without it there is nothing else to try.
     """
-    with step("agent forwarding on the machine"):
+    if mode == "never":
+        with step("agent forwarding on the machine") as st:
+            st.note = 'off: ssh.forward_agent = "never"'
+        return
+    with step("agent forwarding on the machine") as st:
         if not ssh(machine, "printenv SSH_AUTH_SOCK").stdout.strip():
             raise Fail(
                 4,
                 "the machine has no forwarded agent socket",
                 "use a machine whose sshd allows agent forwarding; mlink never copies keys",
             )
+        st.note = mode
     with step("github.com greets from the machine"):
         command = "ssh -T -o StrictHostKeyChecking=accept-new git@github.com"
         if GITHUB_OK not in ssh(machine, command, timeout=30).text.lower():
             raise Fail(
                 4,
                 "forwarding works, but GitHub denied the key from the machine",
-                "run 'mlink init' here; usually the local agent lost the key",
+                CONSTRAINED_HINT if mode == "constrained" else FIX_LOCAL_AGENT,
             )
 
 

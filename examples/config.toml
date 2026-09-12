@@ -7,6 +7,11 @@ default_user = "ubuntu"               # remote user when a target names none
 connect_timeout = 5                   # seconds per connection attempt
 reachability_timeout = 900            # total seconds to wait for a fresh machine to accept ssh;
                                       # Vast's base image needs 5-10 minutes on its first boot
+forward_agent = "constrained"         # what a rented machine sees of your agent:
+                                      #   constrained  your key, usable only for github.com and
+                                      #                only from that machine (OpenSSH 8.9+)
+                                      #   always       the whole agent, as 'ssh -A' does it
+                                      #   never        nothing; private repos will not clone
 
 [git]
 name = "Ada Lovelace"

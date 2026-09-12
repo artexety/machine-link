@@ -1,7 +1,8 @@
 """Invariants that must hold on every code path: no secret on a command line or in a URL."""
 
 from machine_link import cli, sshconf
-from tests.test_cli import CLEAN, mlink
+from tests.conftest import CLEAN
+from tests.test_cli import mlink
 from tests.test_providers import PRIME_ROUTES, VERDA_ROUTES
 
 SECRETS = ("prime-secret", "vast-secret", "csecret", "PRIVATE KEY MATERIAL")
@@ -49,4 +50,5 @@ def test_nothing_is_destroyed_or_created_without_being_asked(settings, project, 
 
 def test_the_stanza_never_disables_host_key_checking():
     machine = cli.Machine(name="x", host="h", user="u")
-    assert "StrictHostKeyChecking=no" not in sshconf.stanza(machine, "~/.ssh/id_ed25519", bare=True)
+    text = sshconf.stanza(machine, "~/.ssh/id_ed25519", "~/.config/mlink/agent.sock", bare=True)
+    assert "StrictHostKeyChecking=no" not in text

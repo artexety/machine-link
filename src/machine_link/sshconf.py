@@ -29,7 +29,7 @@ def known_hosts() -> Path:
     return Path(KNOWN_HOSTS).expanduser()
 
 
-def stanza(machine: Machine, identity_file: str, *, bare: bool) -> str:
+def stanza(machine: Machine, identity_file: str, forward: str, *, bare: bool) -> str:
     """One Host stanza. The bare name is included unless the user already uses it themselves."""
     patterns = f"{machine.name} {machine.alias}" if bare else machine.alias
     lines = [f"Host {patterns}", f"    HostName {machine.host}", f"    User {machine.user}"]
@@ -37,7 +37,7 @@ def stanza(machine: Machine, identity_file: str, *, bare: bool) -> str:
         lines.append(f"    Port {machine.port}")
     lines += [
         f"    IdentityFile {identity_file}",
-        "    ForwardAgent yes",
+        f"    ForwardAgent {forward}",
         "    ControlMaster auto",
         "    ControlPath ~/.ssh/mlink-%C",
         "    ControlPersist 10m",
@@ -47,10 +47,10 @@ def stanza(machine: Machine, identity_file: str, *, bare: bool) -> str:
     return "\n".join(lines)
 
 
-def render(machines: list[Machine], identity_file: str, claimed: set[str]) -> str:
+def render(machines: list[Machine], identity_file: str, forward: str, claimed: set[str]) -> str:
     parts = [BEGIN, "# Managed by machine-link. Edits inside this block are overwritten."]
     for machine in sorted(machines, key=lambda m: m.name):
-        parts += ["", stanza(machine, identity_file, bare=machine.name not in claimed)]
+        parts += ["", stanza(machine, identity_file, forward, bare=machine.name not in claimed)]
     return "\n".join([*parts, END])
 
 
@@ -74,8 +74,8 @@ def host_patterns(text: str) -> set[str]:
     return patterns
 
 
-def apply(text: str, machines: list[Machine], identity_file: str) -> str:
-    block = render(machines, identity_file, host_patterns(text))
+def apply(text: str, machines: list[Machine], identity_file: str, forward: str) -> str:
+    block = render(machines, identity_file, forward, host_patterns(text))
     before, existing, after = _split(text)
     if existing is not None:
         return before + block + after
@@ -84,7 +84,9 @@ def apply(text: str, machines: list[Machine], identity_file: str) -> str:
     return f"{text}\n{block}\n" if text else f"{block}\n"
 
 
-def write(machines: list[Machine], identity_file: str, path: Path | None = None) -> bool:
+def write(
+    machines: list[Machine], identity_file: str, forward: str, path: Path | None = None
+) -> bool:
     """Rewrite the managed block, keeping one backup of the pre-mlink file. True if it changed."""
     path = path or config_file()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -92,7 +94,7 @@ def write(machines: list[Machine], identity_file: str, path: Path | None = None)
     hosts.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     hosts.touch(mode=0o600)
     text = path.read_text() if path.exists() else ""
-    updated = apply(text, machines, identity_file)
+    updated = apply(text, machines, identity_file, forward)
     if updated == text:
         return False
     backup = path.with_name("config.mlink.bak")

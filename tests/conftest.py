@@ -14,6 +14,10 @@ from machine_link import config as config_mod
 from machine_link.ui import OPTS
 
 PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyBody local-comment"
+#: What `repo_state` reads back off a machine: branch, head, porcelain status, unpushed log.
+CLEAN = "main\nabc1234\n--mlink--\n\n--mlink--\n"
+DIRTY = "main\nabc1234\n--mlink--\n M train.py\n--mlink--\n"
+UNPUSHED = "main\nabc1234\n--mlink--\n\n--mlink--\nabc1234 wip\n"
 
 
 @pytest.fixture(autouse=True)
@@ -155,3 +159,14 @@ def project(tmp_path, monkeypatch):
     )
     monkeypatch.chdir(directory)
     return directory
+
+
+@pytest.fixture
+def healthy(calls):
+    """A machine that answers every check the way a good one does."""
+    calls.answer("ssh -V", stderr="OpenSSH_9.6p1, LibreSSL 3.3.6\n")
+    calls.answer("printenv SSH_AUTH_SOCK", stdout="/tmp/ssh-agent.sock\n")
+    calls.answer("git@github.com", stdout="Hi ada! You've successfully authenticated\n")
+    calls.answer("--mlink--", stdout=CLEAN)
+    calls.answer("test -d", code=1)
+    return calls
