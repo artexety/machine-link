@@ -11,13 +11,10 @@ from typer.testing import CliRunner
 from machine_link import cli, config, sshconf
 from machine_link.registry import Registry
 from machine_link.ui import Fail
-from tests.conftest import PUBKEY
+from tests.conftest import CLEAN, DIRTY, PUBKEY, UNPUSHED
 from tests.test_providers import PRIME_ROUTES, VAST_ROUTES, VERDA_ROUTES
 
 runner = CliRunner()
-CLEAN = "main\nabc1234\n--mlink--\n\n--mlink--\n"
-DIRTY = "main\nabc1234\n--mlink--\n M train.py\n--mlink--\n"
-UNPUSHED = "main\nabc1234\n--mlink--\n\n--mlink--\nabc1234 wip\n"
 
 
 def mlink(*args: str) -> tuple[int, str]:
@@ -28,16 +25,6 @@ def mlink(*args: str) -> tuple[int, str]:
     if result.exception and not isinstance(result.exception, SystemExit):
         raise result.exception
     return result.exit_code, result.stdout
-
-
-@pytest.fixture
-def healthy(calls):
-    """A machine that answers every check the way a good one does."""
-    calls.answer("printenv SSH_AUTH_SOCK", stdout="/tmp/ssh-agent.sock\n")
-    calls.answer("git@github.com", stdout="Hi ada! You've successfully authenticated\n")
-    calls.answer("--mlink--", stdout=CLEAN)
-    calls.answer("test -d", code=1)
-    return calls
 
 
 @pytest.fixture
@@ -119,7 +106,9 @@ def test_init_needs_a_terminal_or_yes(fresh_computer):
 def test_up_registers_a_typed_target_and_talks_only_through_its_alias(settings, project, healthy):
     code, _ = mlink("up", "ubuntu@203.0.113.7:2222", "--name", "trainer")
     assert code == 0
-    remote_calls = [argv for argv in healthy if argv[0] in ("ssh", "scp", "rsync")]
+    remote_calls = [  # 'ssh -V' asks the local binary its version; it connects to nothing
+        argv for argv in healthy if argv[0] in ("ssh", "scp", "rsync") and argv[1:2] != ["-V"]
+    ]
     assert all("mlink-trainer" in argv for argv in remote_calls)
     assert not any("203.0.113.7" in " ".join(argv) for argv in remote_calls)
     stanza = sshconf.config_file().read_text()
@@ -136,6 +125,7 @@ def test_up_registers_a_typed_target_and_talks_only_through_its_alias(settings, 
 
 
 def test_up_stops_at_the_forwarding_check_with_exit_4(settings, project, calls):
+    calls.answer("ssh -V", stderr="OpenSSH_9.6p1, LibreSSL 3.3.6\n")
     calls.answer("git@github.com", stdout="Hi ada! You've successfully authenticated\n")
     code, _ = mlink("up", "ubuntu@203.0.113.7")
     assert code == 4

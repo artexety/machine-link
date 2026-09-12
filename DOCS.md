@@ -24,7 +24,7 @@ Prepares this computer, and diagnoses it when rerun:
 3. GitHub greets it (the public key is printed if not, so you can add it)
 4. `~/.config/mlink/config.toml` exists (prompts for the values, `--yes` takes the defaults;
    the providers whose credentials are set are turned on)
-5. the managed block in `~/.ssh/config` is current
+5. the managed block in `~/.ssh/config` is current, and the forwarding mode it carries
 6. the public key is registered at every configured provider, uploading it when missing
 7. `rsync` is on PATH
 
@@ -94,12 +94,16 @@ Makes a machine ready:
 
 1. writes its ssh stanza and waits until it accepts a login (a rejected key stops here, exit 3;
    Vast's base image needs five to ten minutes on its first boot)
-2. verifies agent forwarding on the machine (exit 4 if the box blocks it)
-3. verifies GitHub answers **from the machine** through the forwarded agent (exit 4)
-4. sets your git identity
-5. runs `[provision]` commands, then the script (`--skip-provision` skips both)
-6. clones each `[[repos]]` entry, or fetches and fast-forwards it, then runs `post_clone`
-7. pins the machine to this project, records the deployed repos for `down`, prints a summary
+2. loads your key into mlink's own agent, bound to this machine and to its hop to github.com
+3. verifies agent forwarding on the machine (exit 4 if the box blocks it)
+4. verifies GitHub answers **from the machine** through the forwarded agent (exit 4)
+5. sets your git identity
+6. runs `[provision]` commands, then the script (`--skip-provision` skips both)
+7. clones each `[[repos]]` entry, or fetches and fast-forwards it, then runs `post_clone`
+8. pins the machine to this project, records the deployed repos for `down`, prints a summary
+
+Steps 2 to 4 depend on `ssh.forward_agent`; see **Agent forwarding** below. Under
+`forward_agent = "never"` they are skipped and a private repo will fail to clone in step 7.
 
 `--name` names a machine given as an address. Provisioning output is shown with `-v`; on
 failure the last line is printed either way.
@@ -185,6 +189,7 @@ by fallback. It warns when other projects still point at the machine. Machines f
 | `ssh.default_user` | `ubuntu` | Remote user when a target names none |
 | `ssh.connect_timeout` | `5` | Seconds per connection attempt |
 | `ssh.reachability_timeout` | `900` | Seconds to wait for a fresh machine to accept ssh; Vast's first boot takes 5-10 minutes |
+| `ssh.forward_agent` | `constrained` | What a machine sees of your agent: `constrained`, `always` or `never` |
 | `git.name`, `git.email` | | Set with `git config --global` on the box |
 | `providers.prime.image` | the offer's first image | Prime pod image |
 | `providers.vast.image` | `vastai/base-image:@vastai-automatic-tag` | Docker image; Vast adds sshd to it |
@@ -197,6 +202,38 @@ A provider is enabled by the presence of its `[providers.<name>]` section; `init
 
 ---
 
+## Agent forwarding
+
+A machine reaches GitHub through a forwarded agent, because mlink never copies a key or a token
+onto one. The forwarded agent is not the one you use yourself: mlink keeps a second agent at
+`~/.config/mlink/agent.sock`, holding your identity with OpenSSH destination constraints that
+permit exactly two hops, to each machine and from each machine to github.com. The constraints
+are checked by the agent on your computer, against the host keys in
+`~/.config/mlink/known_hosts` and `~/.ssh/known_hosts`, so a machine cannot claim a signature is
+going somewhere it is not.
+
+| Mode | What a machine can do with the socket | Cost |
+|---|---|---|
+| `constrained` (default) | Authenticate to github.com, from that machine, while you are connected | Needs OpenSSH 8.9+ locally **and** on the machine |
+| `always` | Anything your agent can do, while you are connected | The old `ssh -A` exposure |
+| `never` | Nothing | Private repos do not clone; use a public repo, or `[provision]` |
+
+The stanza carries the mode as `ForwardAgent ~/.config/mlink/agent.sock`, `ForwardAgent yes` or
+`ForwardAgent no`, so `ssh trainer`, git, rsync and VS Code Remote-SSH all get the same
+treatment as mlink itself.
+
+The key is loaded once and reloaded only when the set of machines changes, so a passphrase is
+asked for at most once per agent. `mlink init` reports the mode and warns if the local ssh is
+too old for `constrained`; `mlink up` refuses rather than downgrading silently. If `up` reaches
+step 4 and GitHub denies the key, the machine's own ssh client is usually older than 8.9 and
+cannot prove the second hop: check with `mlink ssh -- ssh -V`.
+
+What `constrained` does **not** prevent: while you are connected, root on that machine can
+authenticate to github.com as you, and therefore push to any repository you can write to. Only
+`never` closes that, and a per-repository deploy key would, which mlink does not issue.
+
+---
+
 ## Files
 
 | Path | Contents |
@@ -204,6 +241,8 @@ A provider is enabled by the presence of its `[providers.<name>]` section; `init
 | `~/.config/mlink/config.toml` | Who you are: ssh identity, git identity, providers, `[[machines]]` |
 | `~/.config/mlink/.env` | Provider credentials for development; `chmod 600` |
 | `~/.config/mlink/known_hosts` | Host keys of your machines, dropped when they go |
+| `~/.config/mlink/agent.sock` | mlink's own ssh-agent: your key, bound to your machines and to github.com |
+| `~/.config/mlink/agent.json` | The routes that agent's key is currently bound to |
 | `~/.local/state/mlink/machines.json` | The registry: machines and per-project pointers |
 | `~/.local/state/mlink/gpus.json` | The last `mlink gpus` listing, for row numbers |
 | `~/.ssh/config` | One managed block, one `Host` stanza per machine; everything outside the markers is untouched |

@@ -12,6 +12,8 @@ from .models import Machine, valid_name
 from .ui import Fail, warn
 
 PROJECT_FILE = "mlink.toml"
+#: Kept here rather than imported from machine_link.agent, which reads the config itself.
+FORWARD_MODES = ("constrained", "always", "never")
 
 
 @dataclass(slots=True)
@@ -20,6 +22,8 @@ class Ssh:
     default_user: str = "ubuntu"
     connect_timeout: int = 5
     reachability_timeout: int = 900
+    #: How much of your agent a rented machine gets to see. See machine_link.agent.
+    forward_agent: str = "constrained"
 
     @property
     def key(self) -> Path:
@@ -101,6 +105,12 @@ def load_settings(explicit: str | None = None) -> Settings:
     load_env(path.parent / ".env")
     data = _toml(path)
     ssh = _build(Ssh, data.get("ssh") or {}, "ssh")
+    if ssh.forward_agent not in FORWARD_MODES:
+        raise Fail(
+            2,
+            f"ssh.forward_agent = {ssh.forward_agent!r} is not a mode",
+            f"use one of: {', '.join(FORWARD_MODES)}",
+        )
     return Settings(
         ssh=ssh,
         git=_build(Git, data.get("git") or {}, "git"),
@@ -195,6 +205,11 @@ identity_file = "{identity_file}"   # its .pub is registered at every provider b
 default_user = "{default_user}"     # remote user when a target names none
 connect_timeout = 5                 # seconds per connection attempt
 reachability_timeout = 900          # total seconds to wait for a fresh machine to accept ssh
+forward_agent = "{forward_agent}"
+# what a rented machine sees of your agent:
+#   constrained  only your key, only for github.com, only from that machine (OpenSSH 8.9+)
+#   always       the whole agent, as 'ssh -A' does it
+#   never        nothing; private repos will not clone
 
 [git]
 name = "{git_name}"
@@ -251,6 +266,7 @@ def write_settings(settings: Settings) -> None:
         TEMPLATE.format(
             identity_file=settings.ssh.identity_file,
             default_user=settings.ssh.default_user,
+            forward_agent=settings.ssh.forward_agent,
             git_name=settings.git.name,
             git_email=settings.git.email,
             providers="\n".join(_section(n, n in settings.providers) for n in PROVIDER_SECTIONS),

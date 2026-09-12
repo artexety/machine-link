@@ -72,7 +72,7 @@ Host trainer mlink-trainer
     HostName 203.0.113.7
     User ubuntu
     IdentityFile ~/.ssh/id_ed25519
-    ForwardAgent yes
+    ForwardAgent ~/.config/mlink/agent.sock
     ControlMaster auto
     ControlPath ~/.ssh/mlink-%C
     ControlPersist 10m
@@ -80,7 +80,9 @@ Host trainer mlink-trainer
     StrictHostKeyChecking accept-new
 ```
 
-Everything mlink does goes through that stanza, and so does `ssh trainer` from git, rsync or VS Code Remote-SSH. Agent forwarding is scoped to your machines, and the box reaches GitHub only through it, so no key or token is ever copied anywhere. Host keys of rented machines live in mlink's own file and are deleted with the machine, so a recycled address never triggers a warning. Each project remembers its own machine, so two projects never mix up boxes, and `down` refuses to destroy one holding uncommitted or unpushed work. A machine it cannot reach counts as unsafe.
+Everything mlink does goes through that stanza, and so does `ssh trainer` from git, rsync or VS Code Remote-SSH. Host keys of rented machines live in mlink's own file and are deleted with the machine, so a recycled address never triggers a warning. Each project remembers its own machine, so two projects never mix up boxes, and `down` refuses to destroy one holding uncommitted or unpushed work. A machine it cannot reach counts as unsafe.
+
+A rented box is someone else's hardware, and a forwarded agent socket lets whoever has root on it sign as you. mlink still copies no key and no token onto a machine, but it does not hand over your own agent either: it keeps a second one at `~/.config/mlink/agent.sock` holding your key with OpenSSH destination constraints, and forwards that. What the box can do with the socket is authenticate to github.com, from that machine, while you are connected, and nothing else. That last window is real, and `ssh.forward_agent` takes `always` for an old image or `never` to close it entirely. [DOCS.md](https://github.com/artexety/machine-link/blob/main/DOCS.md#agent-forwarding) has the whole tradeoff.
 
 Every command, flag and exit code is in [DOCS.md](https://github.com/artexety/machine-link/blob/main/DOCS.md); annotated copies of both config files are in [examples/](https://github.com/artexety/machine-link/tree/main/examples).
 

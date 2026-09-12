@@ -16,7 +16,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from . import __version__, config, providers, remote, sshconf
+from . import __version__, agent, config, providers, remote, sshconf
 from .config import Project, Repo, Settings
 from .models import STATIC, Filters, Machine, Offer, looks_like_target, valid_name
 from .registry import Registry, state_dir, unique_name
@@ -105,7 +105,11 @@ def _load() -> State:
 def _link(state: State) -> bool:
     """Keep ~/.ssh/config in step with the registry. Machines without an address yet are skipped."""
     machines = [m for m in state.registry.listed() if m.host]
-    return sshconf.write(machines, state.settings.ssh.identity_file)
+    return sshconf.write(
+        machines,
+        state.settings.ssh.identity_file,
+        agent.forward_value(state.settings.ssh.forward_agent),
+    )
 
 
 def _machine(state: State, target: str | None, *, name: str | None = None) -> Machine:
@@ -224,6 +228,7 @@ def init(
             config.write_settings(settings)
         on = ", ".join(settings.providers) or "none"
         st.note = f"{'written' if fresh else 'present'}; providers: {on}"
+    mode = settings.ssh.forward_agent
 
     state = State(settings, Project(), Registry())
     for machine in settings.machines:
@@ -231,7 +236,12 @@ def init(
     with step("managed block in ~/.ssh/config") as st:
         _link(state)
         state.registry.save()
-        st.note = f"{len(state.registry.machines)} machines"
+        st.note = f"{len(state.registry.machines)} machines, forward_agent {mode}"
+    if mode == agent.CONSTRAINED and agent.openssh_version() < agent.MIN_OPENSSH:
+        warn(
+            "this OpenSSH cannot bind a forwarded key to a route (8.9 added it), so 'mlink up' "
+            f'will stop and ask you to set ssh.forward_agent = "always" in {path}'
+        )
     for provider in providers.enabled(settings):
         with step(f"public key registered at {provider.name}") as st:
             try:
@@ -451,7 +461,11 @@ def up(
     _link(state)
     with step(f"reachable {machine.user}@{machine.host}:{machine.port}"):
         remote.wait_reachable(machine, state.settings, _hint(state, machine))
-    remote.check_chain(machine)
+    # Only now: a route is bound to a host key, and a machine nobody has reached has none yet.
+    with step("mlink's agent holds the key for this machine") as st:
+        agent.ensure(state.registry.listed(), state.settings)
+        st.note = state.settings.ssh.forward_agent
+    remote.check_chain(machine, state.settings.ssh.forward_agent)
     remote.set_git_identity(machine, state.settings.git)
     if state.project.sync and not remote.ssh(machine, "command -v rsync").ok:
         warn(

@@ -2,19 +2,20 @@ from machine_link import sshconf
 from machine_link.models import Machine
 
 KEY = "~/.ssh/id_ed25519"
+SOCK = "~/.config/mlink/agent.sock"
 TRAINER = Machine(name="trainer", host="203.0.113.7", user="ubuntu", port=2222)
 BOX = Machine(name="box", host="203.0.113.8", user="root")
 
 
 def test_stanza_carries_everything_mlink_relies_on():
-    text = sshconf.stanza(TRAINER, KEY, bare=True)
+    text = sshconf.stanza(TRAINER, KEY, SOCK, bare=True)
     assert text.startswith("Host trainer mlink-trainer\n")
     for line in (
         "HostName 203.0.113.7",
         "User ubuntu",
         "Port 2222",
         f"IdentityFile {KEY}",
-        "ForwardAgent yes",
+        f"ForwardAgent {SOCK}",
         "ControlMaster auto",
         "UserKnownHostsFile ~/.config/mlink/known_hosts",
         "StrictHostKeyChecking accept-new",
@@ -23,12 +24,12 @@ def test_stanza_carries_everything_mlink_relies_on():
 
 
 def test_default_port_is_not_written():
-    assert "Port" not in sshconf.stanza(BOX, KEY, bare=True)
+    assert "Port" not in sshconf.stanza(BOX, KEY, SOCK, bare=True)
 
 
 def test_bare_alias_is_dropped_when_the_user_already_uses_the_name():
     text = "Host trainer\n    HostName elsewhere\n"
-    block = sshconf.apply(text, [TRAINER], KEY)
+    block = sshconf.apply(text, [TRAINER], KEY, SOCK)
     assert "Host mlink-trainer\n" in block
     assert "Host trainer mlink-trainer" not in block
     assert sshconf.alias_for(TRAINER, _write(block)) == "mlink-trainer"
@@ -36,9 +37,9 @@ def test_bare_alias_is_dropped_when_the_user_already_uses_the_name():
 
 def test_apply_preserves_everything_outside_the_markers():
     before = "# mine\nHost *\n    AddKeysToAgent yes\n"
-    first = sshconf.apply(before, [TRAINER], KEY)
+    first = sshconf.apply(before, [TRAINER], KEY, SOCK)
     assert first.startswith(before + "\n" + sshconf.BEGIN)
-    second = sshconf.apply(first + "Host after\n    HostName x\n", [BOX], KEY)
+    second = sshconf.apply(first + "Host after\n    HostName x\n", [BOX], KEY, SOCK)
     assert second.startswith(before)
     assert second.endswith(sshconf.END + "\nHost after\n    HostName x\n")
     assert "mlink-trainer" not in second and "mlink-box" in second
@@ -47,8 +48,8 @@ def test_apply_preserves_everything_outside_the_markers():
 def test_write_is_idempotent_and_backs_up_once(isolated_home):
     path = isolated_home / ".ssh" / "config"
     path.write_text("Host old\n    HostName 1.1.1.1\n")
-    assert sshconf.write([TRAINER], KEY, path) is True
-    assert sshconf.write([TRAINER], KEY, path) is False
+    assert sshconf.write([TRAINER], KEY, SOCK, path) is True
+    assert sshconf.write([TRAINER], KEY, SOCK, path) is False
     backup = path.with_name("config.mlink.bak")
     assert backup.read_text() == "Host old\n    HostName 1.1.1.1\n"
     assert path.stat().st_mode & 0o777 == 0o600
