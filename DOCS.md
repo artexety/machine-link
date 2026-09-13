@@ -115,6 +115,22 @@ Makes a machine ready:
 7. clones each `[[repos]]` entry, or fetches and fast-forwards it, then runs `post_clone`
 8. pins the machine to this project, records the deployed repos for `down`, prints a summary
 
+Three of those steps are gates, and they are where `up` stops:
+
+```mermaid
+flowchart LR
+    A["write the ssh stanza"] --> B{"accepts a login?"}
+    B -->|"refused for 2 min"| X3(["exit 3"])
+    B -->|"yes"| M{"ssh.forward_agent"}
+    M -->|"constrained, always"| K["bind your key to this machine and to its hop to github.com"]
+    K --> F{"a forwarded socket on the machine?"}
+    F -->|"no"| X4(["exit 4"])
+    F -->|"yes"| G{"github.com answers from the machine?"}
+    G -->|"no"| X4
+    G -->|"yes"| Z["the rest, steps 5 to 8"]
+    M -->|"never"| Z
+```
+
 Steps 2 to 4 depend on `ssh.forward_agent`; see **Agent forwarding** below. Under
 `forward_agent = "never"` they are skipped and a private repo will fail to clone in step 7.
 
@@ -368,6 +384,21 @@ are checked by the agent on your computer, against the host keys in
 `~/.config/mlink/known_hosts` and `~/.ssh/known_hosts`, so a machine cannot claim a signature is
 going somewhere it is not.
 
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as your computer<br/>(mlink's agent holds the key)
+    participant M as the machine
+    participant G as github.com
+
+    A->>M: ssh, with the agent socket forwarded
+    M->>A: sign this challenge, for github.com
+    Note over A: the destination is checked here,<br/>against your known_hosts
+    A-->>M: a signature, good for github.com only
+    M->>G: clone, fetch, push
+    Note over A,M: the key never leaves your computer, and a request<br/>naming any other destination is refused
+```
 
 | Mode | What a machine can do with the socket | Cost |
 |---|---|---|
