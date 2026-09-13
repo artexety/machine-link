@@ -187,7 +187,7 @@ def test_the_gpus_table_gives_each_parsed_field_its_own_column(settings, project
     code, output = mlink("gpus")
     assert code == 0
     header = _line(output, "provider")
-    assert header.split() == ["#", "provider", "gpu", "GB", "n", "region", "$/hr"]
+    assert header.split() == ["#", "provider", "gpu", "GB", "n", "loc", "$/hr"]
     assert "variant" not in header  # the column is there, unheaded, between gpu and GB
     assert _line(output, "verda", "A100").split()[2:4] == ["A100", "SXM4"]
     # gpu, then the unheaded variant column, then GB, with rich's two spaces between each.

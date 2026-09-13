@@ -49,7 +49,9 @@ JsonOpt = Annotated[bool, typer.Option("--json", help="Machine-readable output."
 GpuOpt = Annotated[
     str, typer.Option("--gpu", metavar="TEXT", help="GPU name contains this (a100, 4090).")
 ]
-RegionOpt = Annotated[str, typer.Option("--region", metavar="TEXT", help="Region contains this.")]
+RegionOpt = Annotated[
+    str, typer.Option("--region", metavar="TEXT", help="Region or country begins with this.")
+]
 MaxPriceOpt = Annotated[
     float | None, typer.Option("--max-price", metavar="N", help="At most this many $/hr.")
 ]
@@ -318,7 +320,8 @@ def gpus(
     _rows_file().write_text(json.dumps([asdict(o) for o in shown]))
     if as_json:
         rows = [
-            {"row": i, **asdict(o), "gpu_parsed": asdict(o.card)} for i, o in enumerate(shown, 1)
+            {"row": i, **asdict(o), "gpu_parsed": asdict(o.card), "region_parsed": asdict(o.place)}
+            for i, o in enumerate(shown, 1)
         ]
         out.print(json.dumps(rows, indent=2))
         return
@@ -344,7 +347,7 @@ def gpus(
     if memories:
         table.add_column("GB", justify="right")
     table.add_column("n", justify="right")
-    table.add_column("region")
+    table.add_column("loc")
     table.add_column("$/hr", justify="right")
     table.add_column("")
     for number, (o, card) in enumerate(zip(shown, cards, strict=True), 1):
@@ -355,7 +358,7 @@ def gpus(
             row.append("" if card.memory_gb is None else str(card.memory_gb))
         row += [
             str(o.gpu_count),
-            o.region,
+            o.place.short,
             f"{o.price_hr:.2f}" if o.price_hr is not None else "?",
             "unavailable" if not o.available else ("spot" if o.spot else ""),
         ]
@@ -777,6 +780,7 @@ def ls(
     if as_json:
         entries = [
             {**asdict(m), "current": m is marked, "gpu_parsed": asdict(m.card)}
+            | {"region_parsed": asdict(m.place)}
             | {"uptime": m.uptime, "spend": m.spend}
             for m in machines
         ]

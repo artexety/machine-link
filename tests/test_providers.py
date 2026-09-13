@@ -18,6 +18,7 @@ PRIME_AVAILABILITY = {
             "provider": "massedcompute",
             "region": "united_states",
             "dataCenter": "us-central-1",
+            "country": "US",
             "gpuCount": 1,
             "stockStatus": "Available",
             "prices": {"onDemand": 0.54, "currency": "USD"},
@@ -28,8 +29,9 @@ PRIME_AVAILABILITY = {
             "gpuType": "H100_80GB",
             "socket": "SXM5",
             "provider": "lambdalabs",
-            "region": "united_states",
-            "dataCenter": "us-east-1",
+            "region": "eu_north",
+            "dataCenter": "eu-north1",
+            "country": "FI",
             "gpuCount": 8,
             "stockStatus": "Unavailable",
             "prices": {"onDemand": 23.92},
@@ -43,6 +45,7 @@ PRIME_AVAILABILITY = {
             "provider": "nebius",
             "region": "united_states",
             "dataCenter": "us-central1",
+            "country": "US",
             "stockStatus": "Available",
             "prices": {"onDemand": 0.0496},
             "images": [],
@@ -120,6 +123,11 @@ VERDA_AVAILABILITY = [
     {"location_code": "FIN-02", "availabilities": ["1A100.22V"]},
 ]
 VERDA_SPOT_AVAILABILITY = [{"location_code": "FIN-03", "availabilities": ["1A6000.10V"]}]
+VERDA_LOCATIONS = [
+    {"code": "FIN-01", "name": "Finland 1", "country_code": "FI"},
+    {"code": "FIN-02", "name": "Finland 2", "country_code": "FI"},
+    {"code": "FIN-03", "name": "Finland 3", "country_code": "FI"},
+]
 VERDA_INSTANCES = [
     {
         "id": "11111111-2222-3333-4444-555555555555",
@@ -154,7 +162,7 @@ VAST_OFFERS = {
             "num_gpus": 1,
             "dph_total": 0.35,
             "min_bid": 0.2,
-            "geolocation": "US, TX",
+            "geolocation": ", US",  # Vast leaves the state out when it has none
             "rentable": True,
             "verified": "verified",
             "cuda_max_good": 12.8,
@@ -244,6 +252,7 @@ VERDA_ROUTES = {
     ("GET", "/instance-types"): VERDA_TYPES,
     ("GET", "/instance-availability"): VERDA_AVAILABILITY,
     ("GET", "/instance-availability?is_spot=true"): VERDA_SPOT_AVAILABILITY,
+    ("GET", "/locations"): VERDA_LOCATIONS,
     ("GET", "/sshkeys"): VERDA_KEYS,
     ("POST", "/instances"): lambda body: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     ("PUT", "/instances"): {},
@@ -358,6 +367,8 @@ def test_verda_offers_join_prices_with_the_locations_that_have_capacity(settings
     assert by_key[("1A100.22V", "FIN-02")].available
     assert not by_key[("1A6000.10V", "")].available  # priced, but in stock nowhere
     assert by_key[("CPU.4V.16G", "FIN-01")].gpu_count == 0
+    # FIN-01 is a rack, not a place: Verda's own catalogue says which place it is in.
+    assert by_key[("1A100.22V", "FIN-01")].place.label == "Finland 1, FI"
 
 
 def test_verda_spot_offers_use_the_spot_price_and_the_spot_availability(settings, http):
@@ -365,6 +376,16 @@ def test_verda_spot_offers_use_the_spot_price_and_the_spot_availability(settings
     spot = {(o.id, o.region): o for o in Verda(settings).offers(Filters(), spot=True)}
     assert spot[("1A6000.10V", "FIN-03")].price_hr == 0.305 and spot[("1A6000.10V", "FIN-03")].spot
     assert not spot[("1A100.22V", "")].available
+
+
+def test_prime_reports_the_country_that_its_datacenter_name_does_not(settings, http):
+    """`eu-north1` is in Finland. No amount of reading the code would have said so."""
+    http(PRIME_ROUTES)
+    offers = {o.id: o for o in Prime(settings).offers(Filters(), spot=False)}
+    assert offers["gpu_8x_h100"].place.label == "eu-north1, FI"
+    assert offers["gpu_1x_a6000"].place.label == "us-central-1, US"
+    assert Filters(region="fi").match(offers["gpu_8x_h100"])
+    assert not Filters(region="fi").match(offers["gpu_1x_a6000"])
 
 
 def test_verda_machines_log_in_as_root_and_keep_ordered_instances(settings, http):
@@ -393,10 +414,10 @@ def test_verda_launch_reads_the_plain_text_id_and_sends_the_offers_location(sett
         "location_code": "FIN-02",
         "is_spot": True,
     }
-    assert (machine.id, machine.user, machine.region) == (
+    assert (machine.id, machine.user, machine.place.label) == (
         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "root",
-        "FIN-02",
+        "Finland 2, FI",
     )
 
 
@@ -463,6 +484,9 @@ def test_vast_offers_turn_the_gpu_hint_into_catalogue_names_and_price_bids_at_mi
     # started all this, and it can only be caught here, before the search is sent.
     Vast(settings).offers(Filters(gpu="h200"))
     assert fake.sent("POST", "/bundles/")[-1]["gpu_name"] == {"in": ["H200 NVL"]}
+    half = next(o for o in offers if o.id == "48480001")
+    assert half.place.label == "US"  # ", US" is not a place; what Vast does know is
+
     spot = Vast(settings).offers(Filters(), spot=True)
     assert fake.sent("POST", "/bundles/")[-1]["type"] == "bid"
     assert spot[0].spot and spot[0].price_hr == 0.2

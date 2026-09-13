@@ -313,6 +313,36 @@ def test_gpus_lists_cheapest_first_and_remembers_the_rows(settings, project, htt
     assert json.loads(output)[0]["gpu"] == "CPU_NODE"  # the cheapest row once CPU nodes show
 
 
+def test_the_listing_compares_countries_and_the_confirmation_names_the_site(
+    settings, project, http
+):
+    """The column is read down, so it carries the one thing every row can be compared by. The
+    site is what you check before spending, so that is where it is spelled out."""
+    http({**PRIME_ROUTES, **VERDA_ROUTES})
+    code, output = mlink("gpus", "--limit", "5")
+    assert code == 0
+    rows = [line.split() for line in output.splitlines() if line.strip()]
+    assert [row[1:2] + row[-2:] for row in rows if row[0] == "1"] == [["prime", "US", "0.54"]]
+    assert "us-central-1" not in output and "FIN-01" not in output
+    confirmed = mlink("launch", "1", "--name", "probe", "--dry-run")[1]
+    assert "in us-central-1, US at $0.54/hr" in confirmed
+    # the code is still what launch sends back, and still what --region can be written in
+    rows = json.loads(mlink("gpus", "--json", "--limit", "5")[1])
+    verda = next(r for r in rows if r["provider"] == "verda")
+    assert verda["region"] == "FIN-01"
+    assert verda["region_parsed"] == {"raw": "FIN-01", "site": "Finland 1", "country": "FI"}
+    for query in ("fin-01", "finland"):
+        found = json.loads(mlink("gpus", "--region", query, "--json")[1])
+        assert found and {r["provider"] for r in found} == {"verda"}
+    # and the point of resolving at all: one query reaches Finland at both providers, though
+    # only one of them spells it anywhere in the name.
+    both = json.loads(mlink("gpus", "--region", "fi", "--json")[1])
+    assert {(r["provider"], r["region"]) for r in both} >= {
+        ("prime", "eu-north1"),
+        ("verda", "FIN-01"),
+    }
+
+
 def test_renting_needs_a_configured_provider(settings, http):
     http({**PRIME_ROUTES, **VERDA_ROUTES})
     settings.path.write_text("[ssh]\n[providers.prime]\n")

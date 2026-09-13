@@ -43,16 +43,16 @@ Everything your configured providers will rent right now, cheapest first, with a
 | `--gpu TEXT` | GPU name begins with this, at a word edge; spacing and case ignored (`a100`, `4090`, `rtx6000ada`) |
 | `--max-price N` | At most this many $/hr |
 | `--gpu-count N` | At least this many GPUs |
-| `--region TEXT` | Region contains this (`fin`, `us-east`) |
+| `--region TEXT` | Region, country or country code begins with this (`fi`, `finland`, `us-east`) |
 | `--provider NAME` | Only this provider |
 | `--spot` | Spot or interruptible pricing: Verda, Vast |
 | `--cpu` | Include CPU-only instances, hidden by default |
 | `--limit N` | Rows to show (default 20) |
 | `--json` | Machine-readable, with each row's id and provider record |
 
-The rows are remembered, so a row number can stand in for an id in `launch`. Prime's region
-column is the data center (`us-central-1`); Verda's is the location (`FIN-01`); Vast's is the
-host's location (`US, TX`). Vast answers at most 64 offers per search, cheapest first, so narrow
+The rows are remembered, so a row number can stand in for an id in `launch`. The `loc` column is
+the country, and the datacenter it stands for is named when you confirm the launch; see [Where a
+machine is](#where-a-machine-is). Vast answers at most 64 offers per search, cheapest first, so narrow
 it with `--gpu` or `--gpu-count`: the GPU query is matched against Vast's catalogue names and
 sent along. With no provider configured, or an unknown `--provider`, it exits 2 and says what
 to add.
@@ -226,21 +226,21 @@ column carries no header, like the note column at the end of the row: it reads a
 of the name beside it, and any word for it would be wider than the values it labels.
 
 ```
-#  provider  gpu         GB  n  region        $/hr
-1  prime     H100        80  1  us-central-3  2.35
-2  vast      H100  NVL   94  1  Malaysia, MY  2.60
-3  vast      H100  PCIE  80  1  Czechia, CZ   2.62
-4  vast      H100  SXM   80  1  Japan, JP     2.69
+#  provider  gpu         GB  n  loc  $/hr
+1  prime     H100        80  1  US   2.35
+2  vast      H100  NVL   94  1  MY   2.60
+3  vast      H100  PCIE  80  1  CZ   2.62
+4  vast      H100  SXM   80  1  JP   2.69
 ```
 
 A column no row in the listing fills is left out rather than standing empty, so a search for a
 card with no variants is exactly as narrow as it was before the column existed:
 
 ```
-#  provider  gpu   GB  n  region        $/hr
-1  vast      L40S  45  1  Japan, JP     0.61
-3  prime     L40S  48  1  us-central-2  0.82
-7  verda     L40S  48  1                1.37  unavailable
+#  provider  gpu   GB  n  loc  $/hr
+1  vast      L40S  45  1  JP   0.61
+3  prime     L40S  48  1  US   0.82
+7  verda     L40S  48  1       1.37  unavailable
 ```
 
 `mlink ls` keeps the one column, since by then you know what you rented.
@@ -269,6 +269,56 @@ One thing it does not paper over: Prime calls an RTX A6000 an `A6000_48GB` while
 call it `RTX A6000`, so `--gpu "rtx a6000"` misses Prime's rows. `--gpu a6000` finds all three.
 Normalising that away would mean keeping a table of marketing names, which would be wrong within
 a quarter.
+
+---
+
+## Where a machine is
+
+Vast says `Mississippi, US`, Prime says `us-central1`, Verda says `FIN-02`, and only the first of
+those tells you where the machine is. The other two are a datacenter's own name for itself, which
+is worth keeping - it is what you quote to support, and what tells two otherwise identical rows
+apart - but on its own it is not an answer.
+
+So the listing carries the country under `loc`, which is the one thing every provider reports
+about every row, and the only thing rows from different providers can be compared by:
+
+```
+#  provider  gpu          GB  n  loc  $/hr
+1  vast      H200  NVL   140  1  BG   3.61
+2  vast      H200  NVL   140  1  US   3.80
+5  verda     H200  SXM5  141  1  FI   4.00
+6  verda     H200  SXM5  141  1  FI   4.00
+9  prime     A100         40  1  IN   1.99
+```
+
+The sites do not line up, so a column of them is not worth its width: Vast gives a US state but
+writes `Bulgaria, BG` where it has no state, Verda gives a rack, Prime gives a partner's name for
+a datacenter. None of that is lost. It is in `--region`, in `--json`, and in the line you confirm
+before any money is spent, which is where knowing it changes what you do:
+
+```
+$ mlink launch 5 --name probe
+probe: verda H200 SXM5 141GB in Finland 2, FI at $4.00/hr
+```
+
+None of that comes from a table in mlink. Every provider already reports the country and mlink
+used to drop it: Prime sends `country` beside `dataCenter`, Verda has a `/locations` endpoint that
+names its own codes (`FIN-02` is `Finland 2`, in `FI`), and Vast writes the code into the string.
+A table of codes here would be a second thing to keep true, and the day it went stale it would be
+confidently wrong about where your money is going.
+
+How far this goes is set by the provider and not by mlink. Prime knows the country and stops
+there: its `us-central1` is a partner's name for a datacenter, not Google's region, so reading a
+state or a city into it would be an invention. What it does buy you is the rows no guess would
+have got right - Prime's `eu-north1` is in Finland, its `EU-SE-1` is in Sweden, its `asia-south-1`
+is in India. A provider that reports nothing leaves the column as it was.
+
+`--region` is asked of all three: the resolved place, the provider's own code, and the country
+code. So `--region fi`, `--region finland` and `--region fin-02` all reach the same Verda rows,
+and `--region us` reaches Prime's `us-east-1` and Vast's `Texas, US` alike. A region query has to
+begin where a word begins, which is why `--region us` does not answer with Belarus, Cyprus and
+Mauritius, but it may stop anywhere, so `--region miss` still finds Mississippi. `--json` carries
+the provider's own string as `region`, with the parsed fields under `region_parsed`.
 
 ---
 
@@ -317,6 +367,7 @@ permit exactly two hops, to each machine and from each machine to github.com. Th
 are checked by the agent on your computer, against the host keys in
 `~/.config/mlink/known_hosts` and `~/.ssh/known_hosts`, so a machine cannot claim a signature is
 going somewhere it is not.
+
 
 | Mode | What a machine can do with the socket | Cost |
 |---|---|---|

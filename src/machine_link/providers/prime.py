@@ -73,6 +73,7 @@ class Prime:
                     gpu=gpu,
                     gpu_count=count,
                     region=item.get("dataCenter") or item.get("region") or "",
+                    country=item.get("country") or "",
                     price_hr=number((item.get("prices") or {}).get("onDemand")),
                     available=stock not in ("unavailable", "none", "out_of_stock"),
                     raw=item,
@@ -106,6 +107,7 @@ class Prime:
             id=created["id"],
             gpu=offer.gpu,
             region=offer.region,
+            country=offer.country,
             status="provisioning",
         )
 

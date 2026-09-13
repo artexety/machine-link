@@ -9,6 +9,9 @@ from datetime import UTC, datetime
 
 from .gpu import Gpu, matches
 from .gpu import parse as parse_gpu
+from .region import Place
+from .region import matches as region_matches
+from .region import parse as parse_region
 from .ui import Fail
 
 STATIC = "static"
@@ -43,6 +46,11 @@ class Machine:
     #: Exactly what the provider called it. Parsed for display through `card`.
     gpu: str = ""
     region: str = ""
+    #: ISO 3166-1 alpha-2 where the provider says it. Empty for a machine mlink merely adopted.
+    country: str = ""
+    #: The provider's own name for that region code, where it has one: Verda calls FIN-02
+    #: "Finland 2". The code itself stays in `region`.
+    site: str = ""
     status: str = ""
     price_hr: float | None = None
     #: When mlink created it, ISO 8601 in UTC. Empty for a machine it merely adopted.
@@ -54,6 +62,11 @@ class Machine:
     def card(self) -> Gpu:
         """The name in mlink's vocabulary rather than the provider's."""
         return parse_gpu(self.gpu)
+
+    @property
+    def place(self) -> Place:
+        """Where it is, in mlink's vocabulary rather than the provider's."""
+        return parse_region(self.region, self.country, self.site)
 
     @property
     def hours(self) -> float | None:
@@ -97,6 +110,11 @@ class Offer:
     gpu_count: int
     region: str
     price_hr: float | None
+    #: ISO 3166-1 alpha-2. Every provider reports it; only Vast writes it into `region` itself.
+    country: str = ""
+    #: The provider's own name for that region code, where it has one: Verda calls FIN-02
+    #: "Finland 2". The code itself stays in `region`.
+    site: str = ""
     available: bool = True
     spot: bool = False
     #: For a provider whose names omit it, as Vast's do, and it reports the number separately.
@@ -109,6 +127,11 @@ class Offer:
         return parse_gpu(self.gpu, self.gpu_memory_gb)
 
     @property
+    def place(self) -> Place:
+        """Where it is, in mlink's vocabulary rather than the provider's."""
+        return parse_region(self.region, self.country, self.site)
+
+    @property
     def label(self) -> str:
         return f"{self.gpu_count}x {self.card.label}" if self.gpu_count > 1 else self.card.label
 
@@ -117,7 +140,7 @@ class Offer:
         return f"${self.price_hr:.2f}/hr" if self.price_hr is not None else "?/hr"
 
     def describe(self) -> str:
-        where = f" in {self.region}" if self.region else ""
+        where = f" in {self.place.label}" if self.region else ""
         spot = " (spot)" if self.spot else ""
         return f"{self.provider} {self.label}{where} at {self.price}{spot}"
 
@@ -138,7 +161,7 @@ class Filters:
             (not self.id or offer.id == self.id)
             and (self.cpu or offer.gpu_count > 0)
             and matches(self.gpu, offer.card)
-            and self.region.lower() in offer.region.lower()
+            and region_matches(self.region, offer.place)
             and offer.gpu_count >= self.min_count
             and (
                 self.max_price is None

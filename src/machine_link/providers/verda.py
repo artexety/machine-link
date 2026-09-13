@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from ..config import Settings
 from ..models import Filters, Machine, Offer
+from ..ui import Fail
 from . import http, key_name, number, pubkey_text, same_key, secret
 
 API = "https://api.verda.com/v1"
@@ -59,6 +60,19 @@ class Verda:
             for item in self._call("GET", "/instances")
         ]
 
+    def _locations(self) -> dict[str, tuple[str, str]]:
+        """`FIN-02` is Verda's name for a rack, not for a place. Its own catalogue says which
+        place, so mlink asks rather than keeping a table of codes that would go stale."""
+        try:
+            found = self._call("GET", "/locations")
+        except Fail:
+            return {}  # a listing is not worth failing over a place name
+        return {
+            entry["code"]: (entry.get("name") or entry["code"], entry.get("country_code") or "")
+            for entry in found
+            if entry.get("code")
+        }
+
     def offers(self, filters: Filters, *, spot: bool = False) -> list[Offer]:
         """One offer per instance type and location with capacity; unstocked types listed once."""
         where: dict[str, list[str]] = {}
@@ -66,11 +80,13 @@ class Verda:
         for entry in self._call("GET", "/instance-availability" + query):
             for kind in entry.get("availabilities") or []:
                 where.setdefault(kind, []).append(entry["location_code"])
+        places = self._locations()
         found = []
         for kind in self._call("GET", "/instance-types"):
             gpu = kind.get("gpu") or {}
             price = number(kind.get("spot_price" if spot else "price_per_hour"))
             for location in sorted(where.get(kind["instance_type"], [])) or [""]:
+                site, country = places.get(location, ("", ""))
                 found.append(
                     Offer(
                         provider=self.name,
@@ -79,6 +95,8 @@ class Verda:
                         gpu_count=int(gpu.get("number_of_gpus") or 0),
                         region=location,
                         price_hr=price,
+                        country=country,
+                        site=site,
                         available=bool(location),
                         spot=spot,
                         raw={"location_code": location},
@@ -108,6 +126,8 @@ class Verda:
             id=created if isinstance(created, str) else created["id"],
             gpu=offer.gpu,
             region=location,
+            country=offer.country,
+            site=offer.site,
             status="ordered",
         )
 
