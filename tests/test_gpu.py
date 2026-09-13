@@ -4,8 +4,9 @@ import json
 
 import pytest
 
-from machine_link.gpu import Gpu, matches, parse, squash
+from machine_link.gpu import Gpu, matches, parse
 from machine_link.models import Filters, Machine, Offer
+from machine_link.names import squash, words
 from machine_link.registry import Registry
 from tests import gpu_catalogue
 from tests.test_cli import mlink
@@ -91,6 +92,9 @@ def test_memory_comes_from_the_name_first_and_the_provider_second():
         ("sxm4", "A100 SXM4"),
         ("v100", "Tesla V100"),
         ("tesla v100", "Tesla V100"),  # the provider's own wording still finds it
+        ("a10", "A10g"),  # a name may go on past the query, so long as it starts where it does
+        ("l40", "L40S_48GB"),
+        ("a6000", "RTX A6000"),
     ],
 )
 def test_gpu_queries_span_the_providers_however_they_are_written(query, raw):
@@ -99,15 +103,35 @@ def test_gpu_queries_span_the_providers_however_they_are_written(query, raw):
 
 @pytest.mark.parametrize(
     ("query", "raw"),
-    [("h100", "H200_141GB"), ("4090", "RTX 4080"), ("sxm", "H100 PCIE"), ("a100", "A10_24GB")],
+    [
+        ("h100", "H200_141GB"),
+        ("4090", "RTX 4080"),
+        ("sxm", "H100 PCIE"),
+        ("a100", "A10_24GB"),
+        # A card whose name merely ends in another's is another card: GH200 is a Grace Hopper,
+        # GB200 a Grace Blackwell, GV100 a Quadro, and an A4000 is nothing like an A40.
+        ("h200", "GH200_96GB"),
+        ("b200", "GB200"),
+        ("v100", "Quadro GV100"),
+        ("a40", "A4000_16GB"),
+        ("a40", "RTX A4000"),
+        ("a10", "A100_80GB"),
+        ("a10", "1x A100 SXM4 40GB"),
+        ("rtx 4000", "RTX A4000"),  # a word between the two is a word too many
+    ],
 )
 def test_a_query_does_not_reach_the_next_card_along(query, raw):
     assert not matches(query, parse(raw))
 
 
-def test_squash_is_what_makes_two_spellings_one_question():
+def test_spacing_is_not_part_of_the_question_but_word_edges_are():
+    """The two halves of the rule: squash says how a query may be written, words say where it
+    may start and stop."""
     assert squash("RTX PRO 6000 Max-Q") == "rtxpro6000maxq" == squash("rtx_pro_6000_maxq")
     assert squash("") == "" and squash(None) == ""
+    assert words("GH200_96GB") == ["gh", "200", "96", "gb"]  # a query may begin at gh, not at h
+    assert words("") == [] and words(None) == []
+    assert matches("rtx pro 6000 maxq", parse("RTX PRO 6000 Max-Q"))
 
 
 def test_an_offer_reads_the_same_whichever_provider_it_came_from():

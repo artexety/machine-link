@@ -40,7 +40,7 @@ Everything your configured providers will rent right now, cheapest first, with a
 
 | Flag | Meaning |
 |---|---|
-| `--gpu TEXT` | GPU name contains this, spacing and case ignored (`a100`, `4090`, `rtx6000ada`) |
+| `--gpu TEXT` | GPU name begins with this, at a word edge; spacing and case ignored (`a100`, `4090`, `rtx6000ada`) |
 | `--max-price N` | At most this many $/hr |
 | `--gpu-count N` | At least this many GPUs |
 | `--region TEXT` | Region contains this (`fin`, `us-east`) |
@@ -53,7 +53,7 @@ Everything your configured providers will rent right now, cheapest first, with a
 The rows are remembered, so a row number can stand in for an id in `launch`. Prime's region
 column is the data center (`us-central-1`); Verda's is the location (`FIN-01`); Vast's is the
 host's location (`US, TX`). Vast answers at most 64 offers per search, cheapest first, so narrow
-it with `--gpu` or `--gpu-count`: the GPU fragment is matched against Vast's catalogue names and
+it with `--gpu` or `--gpu-count`: the GPU query is matched against Vast's catalogue names and
 sent along. With no provider configured, or an unknown `--provider`, it exits 2 and says what
 to add.
 
@@ -251,10 +251,14 @@ does carry it the name wins, because that is the thing being sold. Brand words (
 offer, which every provider reports as a number; parsing a `8x` out of a Verda name only stops
 it turning up in the model.
 
-`--gpu` compares with the spacing and punctuation removed, and against the provider's own
-wording as well as the parsed one. So `rtx6000ada`, `RTX 6000 Ada` and `rtx 6000ada` are one
-question, and `q rtx` still finds what Vast calls `Q RTX 8000`. For Vast the same comparison
-picks the catalogue names to send server-side, so a spacing-free query works there too.
+`--gpu` ignores spacing and punctuation but not word edges: a query has to start where a word of
+the name starts and stop where one stops. So `rtx6000ada`, `RTX 6000 Ada` and `rtx 6000ada` are
+one question, `q rtx` still finds what Vast calls `Q RTX 8000`, and `a6000` still finds an `RTX
+A6000` - but `h200` never answers with a `GH200`, which is a different card, nor `a10` with an
+`A100`, nor `a40` with an `A4000`. A name may go on past the query, so `4090` finds the `4090D`
+and `h200` finds the `H200 NVL`. It is asked of the provider's own wording as well as the parsed
+one, and for Vast the same question picks the catalogue names to send server-side, so one `--gpu`
+means one thing whichever provider answers.
 
 Parsing never drops a row. A name the rules do not recognise keeps its whole self as the model,
 lists normally and rents normally, and the raw string is always kept because it is what a

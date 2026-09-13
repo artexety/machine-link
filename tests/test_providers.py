@@ -177,7 +177,10 @@ VAST_OFFERS = {
     ],
     "truncated": False,
 }
-VAST_NAMES = {"success": True, "gpu_names": ["A100 SXM4", "H100 NVL", "H100 SXM", "RTX 4090"]}
+VAST_NAMES = {
+    "success": True,
+    "gpu_names": ["A100 SXM4", "GH200 NVL", "H100 NVL", "H100 SXM", "H200 NVL", "RTX 4090"],
+}
 VAST_INSTANCES = {
     "success": True,
     "next_token": None,
@@ -455,6 +458,11 @@ def test_vast_offers_turn_the_gpu_hint_into_catalogue_names_and_price_bids_at_mi
         True,
     )
     assert Vast(settings).offers(Filters(gpu="mi300")) == []  # no catalogue name: no search
+    # The server-side filter has to be the same question as the one that filters every other
+    # provider's rows. Asking Vast for a GH200 when you asked for an H200 is the bug that
+    # started all this, and it can only be caught here, before the search is sent.
+    Vast(settings).offers(Filters(gpu="h200"))
+    assert fake.sent("POST", "/bundles/")[-1]["gpu_name"] == {"in": ["H200 NVL"]}
     spot = Vast(settings).offers(Filters(), spot=True)
     assert fake.sent("POST", "/bundles/")[-1]["type"] == "bid"
     assert spot[0].spot and spot[0].price_hr == 0.2

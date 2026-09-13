@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .names import spans, squash
+
 #: Who made it, not what it is. Providers disagree on whether to say it at all: Verda writes
 #: "Tesla V100" where Prime writes "V100_16GB", and Vast abbreviates Quadro to "Q".
 BRANDS = frozenset({"nvidia", "geforce", "tesla", "quadro", "q", "amd", "radeon"})
@@ -94,17 +96,14 @@ def _divide(tokens: list[str]) -> tuple[str, str]:
     return " ".join(tokens), ""
 
 
-def squash(text: str) -> str:
-    """A name with its punctuation and spacing removed, which is how `--gpu` compares them."""
-    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
-
-
 def matches(query: str, gpu: Gpu) -> bool:
     """Whether `--gpu <query>` wants this card.
 
-    Compared with the spacing taken out, so `rtx6000ada`, `RTX 6000 Ada` and `rtx 6000ada` are
-    one query, and against the provider's own wording too, so nothing becomes unfindable by
-    being parsed.
+    A query has to start where a word of the name starts and stop where one stops, though it
+    need not keep the spacing: `rtx6000ada`, `RTX 6000 Ada` and `rtx_pro_6000 ada` ask the same
+    thing. That is what keeps one card out of another's answer, and it is asked of the
+    provider's own wording as well as the parsed one, so nothing becomes unfindable by having
+    been parsed.
     """
     wanted = squash(query)
-    return not wanted or wanted in squash(gpu.label) or wanted in squash(gpu.raw)
+    return not wanted or any(spans(name, wanted) for name in (gpu.label, gpu.raw))

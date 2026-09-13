@@ -1,8 +1,8 @@
 """Vast.ai, a marketplace of hosts. Contract: github.com/vast-ai/vast-python and docs.vast.ai.
 
 Three things shape this module. A search answers at most 64 offers whatever limit is asked, so
-the GPU filter has to reach the server; Vast matches names exactly, so the substring is first
-turned into the catalogue names it occurs in. Instances are reached as root through Vast's ssh
+the GPU filter has to reach the server; Vast matches names exactly, so the query is first
+turned into the catalogue names it asks for. Instances are reached as root through Vast's ssh
 proxy, a host such as ssh5.vast.ai with one port per instance. And a "bid" (interruptible)
 offer is rented by naming a price; mlink bids the listed minimum.
 """
@@ -13,7 +13,8 @@ import json
 from urllib.parse import urlencode
 
 from ..config import Settings
-from ..gpu import squash
+from ..gpu import matches
+from ..gpu import parse as parse_gpu
 from ..models import Filters, Machine, Offer
 from ..ui import Fail
 from . import Gone, http, number, pubkey_text, same_key, secret
@@ -87,10 +88,11 @@ class Vast:
             "allocated_storage": self._disk(),
         }
         if filters.gpu:
-            # Vast matches a name exactly and has no substring operator, so the fragment is
-            # resolved to catalogue names here, in the same vocabulary --gpu is written in.
+            # Vast matches a name exactly and has no substring operator, so the query is
+            # resolved to catalogue names here, by the same rule that filters every other
+            # provider's rows: one --gpu answering differently per provider would be a lie.
             names = self._call("GET", "/v0/gpu_names/unique/")["gpu_names"]
-            wanted = [n for n in names if squash(filters.gpu) in squash(n)]
+            wanted = [n for n in names if matches(filters.gpu, parse_gpu(n))]
             if not wanted:
                 return []
             query["gpu_name"] = {"in": wanted}
