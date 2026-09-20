@@ -433,6 +433,39 @@ def test_verda_config_can_pick_image_and_disk(settings, http):
     assert body["location_code"] == "FIN-03"  # the offer had no location, so the config's applies
 
 
+VERDA_IMAGES = [
+    {"image_type": "24.04.base", "category": "ubuntu"},
+    {"image_type": "24.04.cuda12.9", "category": "ubuntu"},
+    {"image_type": "24.04.cuda13.2.docker", "category": "docker"},
+    {"image_type": "jupyter", "category": "jupyterLab"},
+]
+
+
+def test_verda_answers_a_renamed_image_with_the_names_it_takes_now(settings, http):
+    """The 400 says only "Unsupported image", which leaves nothing to act on."""
+
+    def refuse(_body):
+        raise Fail(1, "Verda answered 400: Unsupported image", "retry")
+
+    http({**VERDA_ROUTES, ("POST", "/instances"): refuse, ("GET", "/images"): VERDA_IMAGES})
+    settings.providers["verda"] = {"image": "ubuntu-24.04-cuda-12.6"}
+    offer = next(o for o in Verda(settings).offers(Filters()) if o.region == "FIN-02")
+    with pytest.raises(Fail) as info:
+        Verda(settings).launch(offer, "vtest")
+    assert info.value.fix == "set providers.verda.image to one of: 24.04.base, 24.04.cuda12.9"
+
+
+def test_verda_leaves_a_failure_that_is_not_about_the_image_alone(settings, http):
+    def refuse(_body):
+        raise Fail(1, "Verda answered 503: Not enough resources", "retry")
+
+    fake = http({**VERDA_ROUTES, ("POST", "/instances"): refuse})
+    offer = next(o for o in Verda(settings).offers(Filters()) if o.region == "FIN-02")
+    with pytest.raises(Fail) as info:
+        Verda(settings).launch(offer, "vtest")
+    assert info.value.fix == "retry" and not fake.sent("GET", "/images")
+
+
 def test_verda_terminate_uses_the_action_verb(settings, http):
     fake = http(VERDA_ROUTES)
     Verda(settings).terminate("11111111")

@@ -126,7 +126,12 @@ class Verda:
         }
         if disk := self.conf.get("disk_gb"):
             body["os_volume"] = {"name": f"{name}-os", "size": int(disk)}
-        created = self._call("POST", "/instances", body)
+        try:
+            created = self._call("POST", "/instances", body)
+        except Fail as exc:
+            if "image" not in exc.message.lower():
+                raise
+            raise Fail(1, exc.message, self._image_fix()) from None
         return Machine(
             name=name,
             host="",
@@ -139,6 +144,16 @@ class Verda:
             site=offer.site,
             status="ordered",
         )
+
+    def _image_fix(self) -> str:
+        """Verda renames its images, so quote what it answers with now rather than guessing."""
+        try:
+            images = self._call("GET", "/images")
+        except Fail:
+            return "look the image names up in the Verda console"
+        plain = sorted(i["image_type"] for i in images if i.get("category") == "ubuntu")
+        names = ", ".join(plain or sorted(i["image_type"] for i in images))
+        return f"set providers.verda.image to one of: {names}"
 
     def terminate(self, machine_id: str) -> None:
         for attempt in range(DELETE_TRIES):
