@@ -9,6 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from machine_link import cli, config, remote, sshconf
+from machine_link.models import Machine
 from machine_link.registry import Registry
 from machine_link.ui import Fail
 from tests.conftest import CLEAN, DIRTY, PUBKEY, UNPUSHED
@@ -598,6 +599,92 @@ def test_a_named_offer_is_never_swapped_for_another_one(settings, project, http)
     row = 1 + next(i for i, o in enumerate(rows) if o["id"] == "48480002")
     assert mlink("launch", str(row), "--yes")[0] == 2
     assert not [m for m in Registry().machines.values() if m.provider == "vast"]
+
+
+def test_a_stuck_machine_is_explained_in_the_providers_own_words(settings, project, http):
+    """Recorded live: a Vast box whose image cannot be pulled sits in 'loading' forever."""
+    _with_vast(settings)
+    stuck = {
+        "instances": [
+            {
+                "id": 31200001,
+                "label": "vtrain",
+                "actual_status": "loading",
+                "intended_status": "running",
+                "ssh_host": "ssh5.vast.ai",
+                "ssh_port": 10600,
+                "num_gpus": 1,
+                "gpu_name": "RTX 4090",
+                "status_msg": " Error response from daemon: pull access denied for nosuchimage/x ",
+            }
+        ]
+    }
+    http({**PRIME_ROUTES, **VERDA_ROUTES, **VAST_ROUTES, ("GET", "/instances/"): stuck})
+    mlink("ls", "--refresh")  # adopt the vast instance into the registry
+    result = runner.invoke(cli.app, ["up", "vtrain"])
+    assert isinstance(result.exception, Fail) and result.exception.code == 3
+    assert "vast says loading: Error response from daemon: pull access denied" in (
+        result.exception.message
+    )
+    assert "mlink down vtrain" in result.exception.fix  # it bills while it sits there
+
+
+def test_a_machine_the_provider_calls_running_adds_nothing_to_the_silence(settings, project, http):
+    """Then ssh silence is about ssh, and a second opinion would only be noise."""
+    _with_vast(settings)
+    http({**PRIME_ROUTES, **VERDA_ROUTES, **VAST_ROUTES})
+    mlink("ls", "--refresh")
+    result = runner.invoke(cli.app, ["up", "vtrain"])
+    assert isinstance(result.exception, Fail) and result.exception.code == 3
+    assert "vast says" not in result.exception.message
+
+
+class Listings:
+    """A provider handler that answers each poll with the next listing."""
+
+    def __init__(self, *listings):
+        self.listings, self.polls = list(listings), 0
+
+    def machines(self):
+        self.polls += 1
+        return self.listings[min(self.polls - 1, len(self.listings) - 1)]
+
+
+def _box(status="provisioning", host=""):
+    return Machine(name="box", host=host, user="root", provider="verda", id="i-1", status=status)
+
+
+@pytest.mark.parametrize("status", sorted(cli.DEAD_STATUS))
+def test_the_wait_stops_at_a_machine_that_died_on_the_way_up(status):
+    """45 minutes of polling a dead machine is 45 minutes of paying for it."""
+    handler = Listings([_box(status)])
+    with pytest.raises(Fail) as info:
+        cli._wait_for_address(handler, _box(), 900)
+    assert status in info.value.message
+    assert "mlink down box" in info.value.fix  # it may still bill, so 'down', not 'forget'
+    assert handler.polls == 1
+
+
+def test_the_wait_stops_when_a_machine_it_had_seen_vanishes():
+    """Seen once, then gone: it was destroyed under us, and 'down' would only 404."""
+    handler = Listings([_box()], [])
+    with pytest.raises(Fail) as info:
+        cli._wait_for_address(handler, _box(), 900)
+    assert "gone from verda's listing" in info.value.message
+    assert "mlink forget box" in info.value.fix
+
+
+def test_the_wait_sits_out_a_listing_that_has_not_caught_up():
+    """A fresh id can be missing for a poll or two, which is not death."""
+    handler = Listings([], [], [_box(host="203.0.113.9", status="running")])
+    assert cli._wait_for_address(handler, _box(), 900).host == "203.0.113.9"
+
+
+def test_the_wait_still_gives_up_when_nothing_ever_arrives():
+    handler = Listings([_box()])
+    with pytest.raises(Fail) as info:
+        cli._wait_for_address(handler, _box(), 900)
+    assert "no address within 900s" in info.value.message
 
 
 def test_a_machine_mlink_rented_remembers_what_it_costs(settings, project, http, no_wait):

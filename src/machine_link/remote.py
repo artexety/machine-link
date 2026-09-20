@@ -53,6 +53,10 @@ CONSTRAINED_HINT = (
 )
 
 
+class Unreachable(Fail):
+    """Nothing answered at all, which is the one failure the provider may be able to explain."""
+
+
 @dataclass(slots=True)
 class Result:
     code: int
@@ -164,7 +168,7 @@ def wait_reachable(machine: Machine, settings: Settings, key_hint: str) -> None:
         else:
             rejecting_since = None  # it stopped answering at all; that is a different wait
         if time.monotonic() >= deadline:
-            raise Fail(
+            raise Unreachable(
                 3,
                 f"{machine.host} was not reachable within {settings.ssh.reachability_timeout}s",
                 "check that the machine is running and the port is right, then retry",

@@ -70,6 +70,7 @@ class Vast:
                         gpu=item.get("gpu_name") or "",
                         region=item.get("geolocation") or "",
                         status=str(item.get("actual_status") or item.get("intended_status") or ""),
+                        note=" ".join(str(item.get("status_msg") or "").split()),
                     )
                 )
             if not page.get("next_token"):

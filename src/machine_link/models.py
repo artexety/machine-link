@@ -52,6 +52,9 @@ class Machine:
     #: "Finland 2". The code itself stays in `region`.
     site: str = ""
     status: str = ""
+    #: What the provider says about that status, where it says anything: Vast puts a failed
+    #: docker pull here, which is the only place the reason for a stuck instance appears.
+    note: str = ""
     price_hr: float | None = None
     #: When mlink created it, ISO 8601 in UTC. Empty for a machine it merely adopted.
     created: str = ""

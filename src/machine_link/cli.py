@@ -291,6 +291,13 @@ def _offers(state: State, only: str | None, spot: bool, filters: Filters) -> lis
 #: How many taken offers to walk past before giving up, so a bad day cannot spend its way
 #: down the whole listing.
 ATTEMPTS = 3
+#: Statuses that mean a fresh machine will never get an address. A provider that is merely slow
+#: says provisioning, loading, pending or ordered instead. Kept to the unambiguous words: a Vast
+#: box can read offline while it is only briefly unreachable, and aborting that would cost a
+#: launch that was about to work.
+DEAD_STATUS = frozenset(
+    {"error", "failed", "exited", "terminated", "deleted", "discontinued", "cancelled"}
+)
 
 
 def _rows_file() -> Path:
@@ -479,20 +486,70 @@ def _pick(
 
 
 def _wait_for_address(handler: providers.Provider, machine: Machine, timeout: int) -> Machine:
-    """Poll the provider until the fresh machine has an address. It stays registered either way."""
-    deadline = time.monotonic() + timeout
+    """Poll the provider until the fresh machine has an address. It stays registered either way.
+
+    A machine that dies on the way up never gets one, so waiting out the whole timeout only adds
+    to the bill. A listing that has not caught up yet is not death: absence counts only after the
+    machine has been seen once.
+    """
+    deadline, seen = time.monotonic() + timeout, False
     while time.monotonic() < deadline:
-        for fresh in handler.machines():
-            if fresh.id == machine.id and fresh.host:
-                fresh.name = machine.name
-                fresh.gpu, fresh.region = machine.gpu or fresh.gpu, machine.region or fresh.region
-                fresh.price_hr, fresh.created = machine.price_hr, machine.created
-                return fresh
+        listed = {fresh.id: fresh for fresh in handler.machines()}
+        if (fresh := listed.get(machine.id)) and fresh.host:
+            fresh.name = machine.name
+            fresh.gpu, fresh.region = machine.gpu or fresh.gpu, machine.region or fresh.region
+            fresh.price_hr, fresh.created = machine.price_hr, machine.created
+            return fresh
+        if fresh and fresh.status in DEAD_STATUS:
+            raise Fail(
+                1,
+                f"{machine.name} is {fresh.status} at {machine.provider} and has no address",
+                f"it may still bill: destroy it with 'mlink down {machine.name}'",
+            )
+        if seen and not fresh:
+            raise Fail(
+                1,
+                f"{machine.name} is gone from {machine.provider}'s listing, with no address",
+                f"drop the registry entry with 'mlink forget {machine.name}'",
+            )
+        seen = seen or fresh is not None
         time.sleep(10)
     raise Fail(
         1,
         f"{machine.provider} gave {machine.name} no address within {timeout}s; it stays registered",
         f"run 'mlink ls --refresh' in a moment, then 'mlink up {machine.name}'",
+    )
+
+
+def _why_unreachable(state: State, machine: Machine, silence: remote.Unreachable) -> Fail:
+    """ssh going quiet says nothing about why, and the provider usually knows.
+
+    Vast hands out its proxy address the moment an instance exists, so a container that can
+    never start still looks launched and only stalls here, with the reason in its status.
+    """
+    if machine.provider == STATIC or not machine.id:
+        return silence
+    try:
+        listed = providers.get(state.settings, machine.provider).machines()
+    except Fail:
+        return silence  # the provider is a second opinion, never the thing that fails
+    fresh = next((m for m in listed if m.id == machine.id), None)
+    if fresh is None:
+        return Fail(
+            3,
+            f"{machine.name} is gone from {machine.provider}'s listing",
+            f"drop the registry entry with 'mlink forget {machine.name}'",
+        )
+    if not fresh.note and fresh.status in ("running", "active"):
+        return silence  # the provider thinks it is fine, so it has nothing to add
+    said = f"{fresh.status}: {fresh.note}" if fresh.note else fresh.status
+    return Fail(
+        silence.code,
+        f"{silence.message}; {machine.provider} says {said}",
+        # Not "check that it is running": the provider has just said it is not, and it bills
+        # in that state exactly as it would in any other.
+        f"that is the machine's own account of it; it bills meanwhile, so destroy it with "
+        f"'mlink down {machine.name}' unless it is worth waiting for",
     )
 
 
@@ -522,7 +579,10 @@ def up(
         say("no mlink.toml above the working directory; nothing will be deployed")
     _link(state)
     with step(f"reachable {machine.user}@{machine.host}:{machine.port}"):
-        remote.wait_reachable(machine, state.settings, _hint(state, machine))
+        try:
+            remote.wait_reachable(machine, state.settings, _hint(state, machine))
+        except remote.Unreachable as silence:
+            raise _why_unreachable(state, machine, silence) from None
     # Only now: a route is bound to a host key, and a machine nobody has reached has none yet.
     with step("mlink's agent holds the key for this machine") as st:
         agent.ensure(state.registry.listed(), state.settings)

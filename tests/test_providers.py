@@ -3,6 +3,7 @@
 import pytest
 
 from machine_link import providers
+from machine_link.cli import DEAD_STATUS
 from machine_link.models import Filters
 from machine_link.providers import verda as verda_mod
 from machine_link.providers.prime import Prime
@@ -343,6 +344,42 @@ def test_prime_without_a_key_is_exit_2(settings, http, monkeypatch):
     with pytest.raises(Fail) as info:
         Prime(settings).offers(Filters())
     assert info.value.code == 2 and "PRIME_API_KEY" in info.value.message
+
+
+# ---- what a dead machine looks like, per provider ----------------------------------------------
+
+
+DEAD_PAYLOADS = [
+    (
+        "prime",
+        PRIME_ROUTES,
+        ("GET", "/pods/?limit=100"),
+        {"data": [{"id": "x", "name": "n", "status": "ERROR", "sshConnection": None}]},
+    ),
+    (
+        "vast",
+        VAST_ROUTES,
+        ("GET", "/instances/"),
+        {"instances": [{"id": 1, "label": "n", "actual_status": "exited", "num_gpus": 1}]},
+    ),
+    (
+        "verda",
+        VERDA_ROUTES,
+        ("GET", "/instances"),
+        [{"id": "x", "hostname": "n", "status": "discontinued", "ip": None}],
+    ),
+]
+
+
+@pytest.mark.parametrize("name, routes, route, payload", DEAD_PAYLOADS)
+def test_a_dead_machine_is_spelled_a_way_the_launch_wait_knows(
+    settings, http, name, routes, route, payload
+):
+    """Each API has its own word for it; 'launch' must not sit there paying for any of them."""
+    http({**routes, route: payload})
+    settings.providers.setdefault(name, {})  # vast is off in the fixture config
+    (machine,) = providers.get(settings, name).machines()
+    assert machine.status in DEAD_STATUS and not machine.host
 
 
 # ---- Verda ------------------------------------------------------------------------------------
