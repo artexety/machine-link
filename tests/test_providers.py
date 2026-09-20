@@ -4,6 +4,7 @@ import pytest
 
 from machine_link import providers
 from machine_link.models import Filters
+from machine_link.providers import verda as verda_mod
 from machine_link.providers.prime import Prime
 from machine_link.providers.vast import Vast
 from machine_link.providers.verda import Verda
@@ -407,7 +408,7 @@ def test_verda_launch_reads_the_plain_text_id_and_sends_the_offers_location(sett
     (body,) = fake.sent("POST", "/instances")
     assert body == {
         "instance_type": "1A100.22V",
-        "image": "ubuntu-24.04-cuda-12.6",
+        "image": "24.04.cuda12.9",
         "ssh_key_ids": ["00000000-1111-2222-3333-444444444444"],
         "hostname": "vtest",
         "description": "created by machine-link",
@@ -436,6 +437,38 @@ def test_verda_terminate_uses_the_action_verb(settings, http):
     fake = http(VERDA_ROUTES)
     Verda(settings).terminate("11111111")
     assert fake.sent("PUT", "/instances") == [{"id": ["11111111"], "action": "delete"}]
+
+
+def test_verda_retries_a_delete_refused_while_the_instance_provisions(settings, http):
+    """Verda answers 403 until it is running; giving up there leaves a machine billing."""
+    refusals = iter([True, True, False])
+
+    def answer(_body):
+        if next(refusals):
+            raise Fail(2, "Verda rejected the credentials (403)", "check the key")
+        return [{"status": "success"}]
+
+    fake = http({**VERDA_ROUTES, ("PUT", "/instances"): answer})
+    Verda(settings).terminate("11111111")
+    assert len(fake.sent("PUT", "/instances")) == 3
+
+
+def test_verda_gives_up_on_a_delete_that_is_really_a_bad_key(settings, http):
+    def answer(_body):
+        raise Fail(2, "Verda rejected the credentials (403)", "check the key")
+
+    fake = http({**VERDA_ROUTES, ("PUT", "/instances"): answer})
+    with pytest.raises(Fail):
+        Verda(settings).terminate("11111111")
+    assert len(fake.sent("PUT", "/instances")) == verda_mod.DELETE_TRIES
+
+
+def test_verda_sends_a_hostname_it_will_accept(settings, http):
+    """mlink names allow dot and underscore; Verda 400s on anything but letters, digits, dash."""
+    fake = http(VERDA_ROUTES)
+    offer = next(o for o in Verda(settings).offers(Filters()) if o.region == "FIN-02")
+    Verda(settings).launch(offer, "my_box.2")
+    assert fake.sent("POST", "/instances")[0]["hostname"] == "my-box-2"
 
 
 def test_verda_uploads_the_key_when_missing_and_reads_the_text_id(settings, http):

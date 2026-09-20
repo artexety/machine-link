@@ -34,7 +34,7 @@ email = "ada@example.com"
 # disk_gb = 50                        # instances are reached as root through Vast's ssh proxy
 
 [providers.verda]
-image = "ubuntu-24.04-cuda-12.6"      # the plain ubuntu-24.04 image ships without a driver
+image = "24.04.cuda12.9"      # the plain ubuntu-24.04 image ships without a driver
 # location = "FIN-01"                 # used when an offer names no location
 # disk_gb = 100
 

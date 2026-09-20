@@ -245,7 +245,7 @@ PROVIDER_SECTIONS = {
 """,
     "verda": """\
 [providers.verda]
-image = "ubuntu-24.04-cuda-12.6"    # the plain ubuntu-24.04 image ships without a driver
+image = "24.04.cuda12.9"           # names come from the Verda console; 24.04.base has no driver
 # location = "FIN-01"               # used when an offer names no location
 # disk_gb = 100
 """,

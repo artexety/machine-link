@@ -366,7 +366,7 @@ the provider's own string as `region`, with the parsed fields under `region_pars
 | `providers.prime.image` | the offer's first image | Prime pod image |
 | `providers.vast.image` | `vastai/base-image:@vastai-automatic-tag` | Docker image; Vast adds sshd to it |
 | `providers.vast.disk_gb` | `50` | Disk of a Vast instance |
-| `providers.verda.image` | `ubuntu-24.04-cuda-12.6` | Verda image |
+| `providers.verda.image` | `24.04.cuda12.9` | Verda image; the console lists the current names |
 | `providers.verda.location` | `FIN-01` | Used when an offer names no location |
 | `machines[].name`, `.host`, `.user`, `.port` | | Machines with a fixed address and no API |
 

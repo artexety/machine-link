@@ -24,8 +24,8 @@ def test_written_config_turns_on_only_the_providers_asked_for(isolated_home):
     config.write_settings(settings)
     text = settings.path.read_text()
     assert "\n# [providers.prime]\n# image = " in text and "# # " not in text
-    assert '\n[providers.verda]\nimage = "ubuntu-24.04-cuda-12.6"' in text
-    assert config.load_settings().providers == {"verda": {"image": "ubuntu-24.04-cuda-12.6"}}
+    assert '\n[providers.verda]\nimage = "24.04.cuda12.9"' in text
+    assert config.load_settings().providers == {"verda": {"image": "24.04.cuda12.9"}}
 
 
 def test_missing_config_is_exit_2_with_the_fix(isolated_home):
