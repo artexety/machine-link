@@ -14,7 +14,17 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CONSTRAINED, NEVER, Git, Project, Repo, Settings, Sync
+from .config import (
+    CONSTRAINED,
+    NEVER,
+    REQUIRED_TOOLS,
+    Git,
+    Project,
+    Repo,
+    Settings,
+    Sync,
+    Tools,
+)
 from .models import Machine
 from .ui import OPTS, Fail, err, step, warn
 
@@ -26,6 +36,13 @@ KEY_GRACE = 120
 GITIGNORE = "--filter=:- .gitignore"
 MARK = "--mlink--"
 FIX_LOCAL_AGENT = "run 'mlink init' here; usually the local agent lost the key"
+#: A freshly booted cloud image is usually still running unattended-upgrades, so wait for the
+#: dpkg lock rather than fail on it. Needs apt 2.0, so Ubuntu 20.04 or newer.
+APT = "apt-get -y -qq -o DPkg::Lock::Timeout=300"
+APT_TIMEOUT = 900
+#: That option covers the dpkg lock but not the lists lock 'update' takes, which apt fails on
+#: after a second (measured on Verda, apt 2.8.3, 2026-09-20), so retry that one by hand.
+UPDATE_TRIES, UPDATE_WAIT = 30, 10
 #: A constrained key needs the machine's own ssh client to prove the second hop, which is what
 #: OpenSSH 8.9 added. An older image forwards the socket fine and is then refused by the agent.
 CONSTRAINED_HINT = (
@@ -198,6 +215,53 @@ def set_git_identity(machine: Machine, git: Git) -> None:
                 "check [git] in the config",
             )
         st.note = f"{git.name} <{git.email}>"
+
+
+def install_tools(machine: Machine, tools: Tools) -> None:
+    """Install what mlink needs and what [tools] asks for, skipping whatever is already there.
+
+    Never a gate: a machine with no apt, or a package apt cannot find, costs a warning only.
+    """
+    names = _wanted(tools)
+    with step("core tools") as st:
+        absent = ssh(machine, _which(names)).stdout.split()
+        if not absent:
+            st.note = f"{len(names)} present"
+            return
+        if not ssh(machine, "command -v apt-get").ok:
+            warn("the machine has no apt-get, so mlink cannot install packages on it")
+        else:
+            result = ssh(machine, _apt(absent), timeout=APT_TIMEOUT, stream=True)
+            asked, absent = absent, ssh(machine, _which(absent)).stdout.split()
+            if not absent:  # apt may exit non-zero having installed everything that mattered
+                st.note = f"installed {' '.join(asked)}"
+                return
+            if not result.ok:  # here, where it is the explanation for what is still absent
+                warn(f"core tools: {short(result.text)}")
+        st.fail(f"missing {' '.join(absent)}")
+        for name in absent:  # named now, so the step that fails on it later need not guess
+            if why := REQUIRED_TOOLS.get(name):
+                warn(f"mlink itself needs {name} on the machine: {why} depends on it")
+
+
+def _wanted(tools: Tools) -> list[str]:
+    configured = (name.strip() for name in tools.install)
+    return list(dict.fromkeys([*REQUIRED_TOOLS, *(name for name in configured if name)]))
+
+
+def _which(names: list[str]) -> str:
+    quoted = " ".join(shlex.quote(name) for name in names)
+    return f'for t in {quoted}; do command -v "$t" >/dev/null 2>&1 || echo "$t"; done'
+
+
+def _apt(missing: list[str]) -> str:
+    packages = " ".join(shlex.quote(name) for name in missing)
+    return (
+        'sudo=; [ "$(id -u)" = 0 ] || sudo=sudo; export DEBIAN_FRONTEND=noninteractive; '
+        f"for _ in $(seq {UPDATE_TRIES}); do $sudo {APT} update && break; sleep {UPDATE_WAIT}; "
+        # Installed even if the index never refreshed: a stale one still holds most packages.
+        f"done; $sudo {APT} install {packages}"
+    )
 
 
 def provision(machine: Machine, project: Project) -> None:

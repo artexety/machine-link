@@ -17,6 +17,11 @@ forward_agent = "constrained"         # what a rented machine sees of your agent
 name = "Ada Lovelace"
 email = "ada@example.com"
 
+[tools]
+# Installed with apt on every machine before [provision], and only where missing. git and rsync
+# come too whether listed or not, because mlink itself uses them; install = [] leaves just those.
+install = ["nvtop", "htop", "tmux", "curl", "ncdu"]
+
 # A provider is on when its section exists; 'mlink init' writes the sections for the providers
 # whose credentials it finds. Credentials are read from the environment or from
 # ~/.config/mlink/.env (chmod 600), never from this file:

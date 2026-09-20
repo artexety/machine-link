@@ -20,8 +20,11 @@ local = "~/runs"
 # remote = "~/research"
 # local = "."
 
-[provision]                        # run before the repos, in order
+# What this project needs beyond the machine config's [tools], run before the repos. A command
+# runs over plain ssh, where ~/.bashrc is unread and ~/.local/bin is off PATH, so an installer
+# must be pointed somewhere post_clone will see.
+[provision]
 commands = [
-  "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync tmux htop",
+  "curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin sh",
 ]
 script = ""                        # local path; copied over, run with bash, removed

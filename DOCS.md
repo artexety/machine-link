@@ -110,10 +110,13 @@ Makes a machine ready:
 2. loads your key into mlink's own agent, bound to this machine and to its hop to github.com
 3. verifies agent forwarding on the machine (exit 4 if the box blocks it)
 4. verifies GitHub answers **from the machine** through the forwarded agent (exit 4)
-5. sets your git identity
-6. runs `[provision]` commands, then the script (`--skip-provision` skips both)
-7. clones each `[[repos]]` entry, or fetches and fast-forwards it, then runs `post_clone`
-8. pins the machine to this project, records the deployed repos for `down`, prints a summary
+5. installs `git`, `rsync` and the `[tools]` the machine is missing (see **Core tools** below)
+6. sets your git identity
+7. runs `[provision]` commands, then the script
+8. clones each `[[repos]]` entry, or fetches and fast-forwards it, then runs `post_clone`
+9. pins the machine to this project, records the deployed repos for `down`, prints a summary
+
+`--skip-provision` skips 5 and 7, the two steps that install software.
 
 Three of those steps are gates, and they are where `up` stops:
 
@@ -127,12 +130,12 @@ flowchart LR
     F -->|"no"| X4(["exit 4"])
     F -->|"yes"| G{"github.com answers from the machine?"}
     G -->|"no"| X4
-    G -->|"yes"| Z["the rest, steps 5 to 8"]
+    G -->|"yes"| Z["the rest, steps 5 to 9"]
     M -->|"never"| Z
 ```
 
 Steps 2 to 4 depend on `ssh.forward_agent`; see **Agent forwarding** below. Under
-`forward_agent = "never"` they are skipped and a private repo will fail to clone in step 7.
+`forward_agent = "never"` they are skipped and a private repo will fail to clone in step 8.
 
 `--name` names a machine given as an address. Provisioning output is shown with `-v`; on
 failure the last line is printed either way.
@@ -169,8 +172,8 @@ reach GitHub at all.
 ### `mlink pull [TARGET]`
 Copies each `[[sync]]` remote path into its local path with `rsync -az --partial`;
 `--delete` removes local files that are gone remotely. There is no gitignore filter on the way
-down, because a results directory is not a source tree. The machine needs rsync installed; `up`
-warns when it is missing and the project has `[[sync]]` entries.
+down, because a results directory is not a source tree. The machine needs rsync installed, which
+is why `up` always installs it; see **Core tools**.
 
 ### `mlink check [TARGET]`
 Exits 5 if any repo `up` deployed to the machine, or any `[[repos]]` entry of this project, has
@@ -338,6 +341,46 @@ the provider's own string as `region`, with the parsed fields under `region_pars
 
 ---
 
+## Core tools
+
+A rented box is a bare image: sshd, a driver, and little else. `up` puts a baseline on it before
+`[provision]`, in one sweep: one `command -v` names what is absent, one `apt-get` installs exactly
+that, so a machine that already has everything costs a single round trip. Each name is a command
+and also its apt package. A freshly booted image is usually still running `unattended-upgrades`,
+so the install waits up to five minutes for apt to be free rather than failing on it.
+
+| Tool | Why |
+|---|---|
+| `git` | Always installed: the git identity and every `[[repos]]` clone need it |
+| `rsync` | Always installed: `mlink push` and `mlink pull` are rsync on both ends |
+| `nvtop` | What the GPUs are doing, per process, live; `nvidia-smi` is a snapshot |
+| `htop` | The other half of a stalled run: CPU, memory, the dataloader workers |
+| `tmux` | A run that survives a dropped connection |
+| `curl` | Almost every install script begins with it |
+| `ncdu` | A rented disk fills with checkpoints, and `du` is a poor way to find out with what |
+
+The first two are not configurable, because a requirement is not a preference. The rest are
+`[tools] install` in the machine config, so the list follows you rather than being imposed by
+whoever wrote the repo; `install = []` leaves only the two mlink needs.
+
+```toml
+[tools]
+install = ["nvtop", "htop", "tmux", "curl", "ncdu"]
+```
+
+Neither part is a gate: an image with no `apt-get`, or a name apt does not know, marks the line
+failed and carries on, naming what will stop working if it was one of mlink's own. What a single
+project needs goes in its `[provision]` instead, committed with the repo. `up --skip-provision`
+skips both steps.
+
+One thing to know when writing `[provision]`: a command runs over plain ssh, which is neither a
+login nor an interactive shell, so `~/.bashrc` is not read and `~/.local/bin` is not on `PATH`. An
+installer that defaults there will succeed and leave `post_clone` unable to find what it installed,
+so point it somewhere already on `PATH` (`UV_INSTALL_DIR=/usr/local/bin` for uv). The tools above
+sidestep this by coming from apt.
+
+---
+
 ## Exit codes
 
 | Code | Meaning |
@@ -363,6 +406,7 @@ the provider's own string as `region`, with the parsed fields under `region_pars
 | `ssh.reachability_timeout` | `900` | Seconds to wait for a fresh machine to accept ssh; Vast's first boot takes 5-10 minutes |
 | `ssh.forward_agent` | `constrained` | What a machine sees of your agent: `constrained`, `always` or `never` |
 | `git.name`, `git.email` | | Set with `git config --global` on the box |
+| `tools.install` | `nvtop htop tmux curl ncdu` | Your packages for every machine, on top of the `git` and `rsync` mlink always installs |
 | `providers.prime.image` | the offer's first image | Prime pod image |
 | `providers.vast.image` | `vastai/base-image:@vastai-automatic-tag` | Docker image; Vast adds sshd to it |
 | `providers.vast.disk_gb` | `50` | Disk of a Vast instance |

@@ -124,6 +124,59 @@ def test_up_registers_a_typed_target_and_talks_only_through_its_alias(settings, 
     assert healthy.matching("sudo apt-get install -y rsync")
 
 
+def test_wanted_puts_mlinks_own_tools_first_and_never_twice():
+    tools = config.Tools(install=["rsync", "nvtop", " ", "nvtop"])
+    assert remote._wanted(tools) == ["git", "rsync", "nvtop"]
+
+
+def test_up_installs_only_the_tools_the_machine_is_missing(settings, project, healthy):
+    healthy.answer("for t in git rsync", stdout="nvtop\nncdu\n")
+    assert mlink("up", "ubuntu@203.0.113.7", "--name", "trainer")[0] == 0
+    (apt,) = healthy.matching("apt-get -y -qq")
+    assert apt[-1].endswith("install nvtop ncdu")  # and not git, rsync, htop, tmux or curl
+    assert "DEBIAN_FRONTEND=noninteractive" in apt[-1]
+    assert "update && break" in apt[-1]  # apt does not wait for the lock 'update' needs
+
+
+def test_up_leaves_a_machine_that_has_the_tools_alone(settings, project, healthy):
+    assert mlink("up", "ubuntu@203.0.113.7", "--name", "trainer")[0] == 0
+    assert not healthy.matching("apt-get -y -qq")
+
+
+def test_up_installs_what_mlink_needs_even_with_the_list_emptied(settings, project, healthy):
+    settings.path.write_text('[git]\nname = "Ada"\n[tools]\ninstall = []\n')
+    healthy.answer("for t in git rsync", stdout="rsync\n")
+    assert mlink("up", "ubuntu@203.0.113.7", "--name", "trainer")[0] == 0
+    check = healthy.matching("for t in")[0][-1]
+    assert check.startswith("for t in git rsync;") and "nvtop" not in check  # only those two
+    assert healthy.matching("apt-get -y -qq")[0][-1].endswith("install rsync")
+
+
+def test_up_skips_the_tools_along_with_provision(settings, project, healthy):
+    healthy.answer("for t in git rsync", stdout="nvtop\n")
+    assert mlink("up", "ubuntu@203.0.113.7", "--name", "trainer", "--skip-provision")[0] == 0
+    assert not healthy.matching("apt-get")  # neither mlink's tools nor the project's [provision]
+    assert not healthy.matching("for t in")  # the machine is not even asked what it has
+
+
+def test_up_stays_quiet_when_a_grumbling_apt_installed_everything(settings, project, healthy):
+    healthy.answer("for t in git rsync", stdout="nvtop\n")
+    healthy.answer("apt-get -y -qq", code=1, stderr="W: the mirror is unhappy\n")
+    result = runner.invoke(cli.app, ["up", "ubuntu@203.0.113.7", "--name", "trainer"])
+    assert result.exit_code == 0
+    assert "the mirror is unhappy" not in result.output  # the recheck says nvtop arrived anyway
+
+
+def test_up_warns_but_finishes_when_the_image_has_no_apt(settings, project, healthy):
+    healthy.answer("for t in git rsync", stdout="rsync\nnvtop\n")
+    healthy.answer("command -v apt-get", code=1)
+    result = runner.invoke(cli.app, ["up", "ubuntu@203.0.113.7", "--name", "trainer"])
+    assert result.exit_code == 0 and not healthy.matching("apt-get -y -qq")
+    assert "no apt-get" in result.output and "missing rsync nvtop" in result.output
+    assert "mlink itself needs rsync" in result.output  # rsync is mlink's own
+    assert "needs nvtop" not in result.output  # nvtop is only yours
+
+
 def test_up_stops_at_the_forwarding_check_with_exit_4(settings, project, calls):
     calls.answer("ssh -V", stderr="OpenSSH_9.6p1, LibreSSL 3.3.6\n")
     calls.answer("git@github.com", stdout="Hi ada! You've successfully authenticated\n")

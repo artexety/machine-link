@@ -504,13 +504,14 @@ def up(
     target: TargetArg = None,
     name: NameOpt = None,
     skip_provision: Annotated[
-        bool, typer.Option("--skip-provision", help="Skip [provision].")
+        bool, typer.Option("--skip-provision", help="Skip [tools] and [provision].")
     ] = False,
 ) -> None:
     """Prepare a machine and clone the repos.
 
-    Waits for it, verifies agent forwarding and GitHub from the machine, sets the git identity,
-    runs [provision], then clones or fast-forwards each [[repos]] entry. Idempotent.
+    Waits for it, verifies agent forwarding and GitHub from the machine, installs the [tools],
+    sets the git identity and runs [provision], then clones or fast-forwards each [[repos]]
+    entry. Idempotent.
     """
     state = _load()
     started = time.monotonic()
@@ -527,12 +528,10 @@ def up(
         agent.ensure(state.registry.listed(), state.settings)
         st.note = state.settings.ssh.forward_agent
     remote.check_chain(machine, state.settings.ssh.forward_agent)
+    if not skip_provision:
+        # Before the identity: 'git config' needs a git, and a slim image may not ship one.
+        remote.install_tools(machine, state.settings.tools)
     remote.set_git_identity(machine, state.settings.git)
-    if state.project.sync and not remote.ssh(machine, "command -v rsync").ok:
-        warn(
-            "the machine has no rsync, so 'mlink pull' cannot copy results back; "
-            "add 'sudo apt-get install -y rsync' to [provision] commands"
-        )
     if not skip_provision:
         remote.provision(machine, state.project)
     for repo in state.project.repos:
@@ -625,8 +624,7 @@ def _sync(target: str | None, *, delete: bool, up: bool) -> None:
                 raise Fail(
                     1,
                     "the machine has no rsync",
-                    "add 'sudo apt-get install -y rsync' to [provision] commands, "
-                    "then rerun 'mlink up'",
+                    "run 'mlink up' to install it, or install it from [provision] commands",
                 )
     if failed == len(state.project.sync):
         raise Fail(1, "every sync mapping failed", "check the paths over 'mlink ssh'")

@@ -1,4 +1,5 @@
 import os
+import pathlib
 import subprocess
 
 import pytest
@@ -26,6 +27,32 @@ def test_written_config_turns_on_only_the_providers_asked_for(isolated_home):
     assert "\n# [providers.prime]\n# image = " in text and "# # " not in text
     assert '\n[providers.verda]\nimage = "24.04.cuda12.9"' in text
     assert config.load_settings().providers == {"verda": {"image": "24.04.cuda12.9"}}
+
+
+def test_tools_default_to_the_comfort_set_and_can_be_emptied(settings):
+    assert settings.tools.install == list(config.DEFAULT_TOOLS)
+    assert not set(config.REQUIRED_TOOLS) & set(config.DEFAULT_TOOLS)  # they are separate lists
+    settings.path.write_text("[tools]\ninstall = []\n")
+    assert config.load_settings().tools.install == []
+    settings.path.write_text('[tools]\ninstall = ["nvtop", "duf"]\n')
+    assert config.load_settings().tools.install == ["nvtop", "duf"]
+
+
+def test_written_config_round_trips_the_tool_list(isolated_home):
+    settings = config.Settings(path=config.settings_path())
+    settings.tools.install = ["nvtop", "ncdu"]
+    config.write_settings(settings)
+    assert '\ninstall = ["nvtop", "ncdu"]\n' in settings.path.read_text()
+    assert config.load_settings().tools.install == ["nvtop", "ncdu"]
+
+
+def test_the_shipped_examples_still_load(isolated_home, monkeypatch):
+    """Documentation that no longer parses is worse than none, and examples/ has no other test."""
+    examples = pathlib.Path(__file__).resolve().parent.parent / "examples"
+    monkeypatch.setenv("MLINK_CONFIG", str(examples / "config.toml"))
+    assert config.load_settings().tools.install == list(config.DEFAULT_TOOLS)
+    # post_clone runs over a plain ssh PATH, so what [provision] installs has to land on it.
+    assert "UV_INSTALL_DIR=/usr/local/bin" in config.load_project(examples).provision.commands[0]
 
 
 def test_missing_config_is_exit_2_with_the_fix(isolated_home):

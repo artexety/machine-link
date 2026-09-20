@@ -42,6 +42,18 @@ class Git:
     email: str = ""
 
 
+#: What mlink runs on a machine itself, and what stops working without each. Not in [tools]:
+#: a requirement is not a preference, and emptying that list must not be able to break mlink.
+REQUIRED_TOOLS = {"git": "every clone", "rsync": "'mlink push' and 'mlink pull'"}
+#: Each name is a command and also its apt package.
+DEFAULT_TOOLS = ("nvtop", "htop", "tmux", "curl", "ncdu")
+
+
+@dataclass(slots=True)
+class Tools:
+    install: list[str] = field(default_factory=lambda: list(DEFAULT_TOOLS))
+
+
 @dataclass(slots=True)
 class Repo:
     url: str
@@ -72,6 +84,7 @@ class Settings:
 
     ssh: Ssh = field(default_factory=Ssh)
     git: Git = field(default_factory=Git)
+    tools: Tools = field(default_factory=Tools)
     providers: dict[str, dict] = field(default_factory=dict)
     machines: list[Machine] = field(default_factory=list)
     path: Path = field(default_factory=Path)
@@ -116,6 +129,7 @@ def load_settings(explicit: str | None = None) -> Settings:
     return Settings(
         ssh=ssh,
         git=_build(Git, data.get("git") or {}, "git"),
+        tools=_build(Tools, data.get("tools") or {}, "tools"),
         providers={str(k): dict(v) for k, v in (data.get("providers") or {}).items()},
         machines=[_static(entry, ssh.default_user) for entry in data.get("machines") or []],
         path=path,
@@ -217,6 +231,12 @@ forward_agent = "{forward_agent}"
 name = "{git_name}"
 email = "{git_email}"
 
+[tools]
+# Your own list, installed with apt on every machine before [provision] and only when it is
+# missing. git and rsync are always installed as well, because mlink itself uses them. Each
+# name is a command, which for these is also its package; install = [] leaves just those two.
+install = [{tools}]
+
 # A provider is on when its section exists; 'mlink init' turns on the ones whose credentials
 # it finds. Credentials are read from the environment or from ~/.config/mlink/.env, never
 # from this file:
@@ -271,6 +291,7 @@ def write_settings(settings: Settings) -> None:
             forward_agent=settings.ssh.forward_agent,
             git_name=settings.git.name,
             git_email=settings.git.email,
+            tools=", ".join(f'"{name}"' for name in settings.tools.install),
             providers="\n".join(_section(n, n in settings.providers) for n in PROVIDER_SECTIONS),
         )
     )

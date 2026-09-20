@@ -26,7 +26,6 @@ mlink down                             # refuses on unpushed work, then destroys
 ## Install
 
 ```bash
-uvx --from machine-link mlink --help   # try it without installing
 uv tool install machine-link           # or: pipx install machine-link
 mlink init                             # once per computer; rerun any time, it is the doctor too
 ```
@@ -58,11 +57,14 @@ post_clone = ["uv sync"]
 remote = "~/research/runs"
 local = "~/runs"
 
-[provision]
-commands = ["sudo apt-get install -y rsync tmux"]
+[provision]                               # what this project needs beyond the core tools
+# a provision command gets a bare ssh PATH, so uv must land on it, not in ~/.local/bin
+commands = ["curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin sh"]
 ```
 
-`mlink up` waits for the machine, verifies agent forwarding and that GitHub answers from the box, sets your git identity, runs `[provision]`, then clones or fast-forwards the repos. It is idempotent, so run it again whenever you change the file.
+`mlink up` waits for the machine, verifies agent forwarding and that GitHub answers from the box, installs the core tools, sets your git identity and runs `[provision]`, then clones or fast-forwards the repos. It is idempotent, so run it again whenever you change the file.
+
+`git` and `rsync` are always installed, because mlink itself uses them. On top of that is your own list, `nvtop`, `htop`, `tmux`, `curl` and `ncdu` by default, kept in the machine config so it follows you across projects rather than being imposed by whoever wrote the repo. Only the missing ones are installed ([how to change it](https://github.com/artexety/machine-link/blob/main/DOCS.md#core-tools)).
 
 ## How it works
 
