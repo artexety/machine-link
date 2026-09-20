@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from ..config import Settings
 from ..models import Filters, Machine, Offer, parse_target
+from ..ui import Fail
 from . import http, key_name, number, pubkey_text, same_key, secret
 
 API = "https://api.primeintellect.ai/api/v1"
@@ -98,7 +99,14 @@ class Prime:
             "pod": {k: v for k, v in pod.items() if v},
             "provider": {"type": raw.get("provider")},
         }
-        created = self._call("POST", "/pods/", body)
+        try:
+            created = self._call("POST", "/pods/", body)
+        except Fail as exc:
+            # Prime's default follows the offer, so only a configured image can be wrong, and
+            # the names it would accept came down with the offer: no second call to list them.
+            if "image" not in exc.message.lower() or not raw.get("images"):
+                raise
+            raise Fail(1, exc.message, f"this offer takes: {', '.join(raw['images'])}") from None
         return Machine(
             name=name,
             host="",

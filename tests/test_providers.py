@@ -379,6 +379,21 @@ def test_verda_spot_offers_use_the_spot_price_and_the_spot_availability(settings
     assert not spot[("1A100.22V", "")].available
 
 
+def test_prime_names_the_images_an_offer_takes_when_a_configured_one_is_refused(settings, http):
+    """Prime's own default follows the offer; only a configured image can be refused."""
+
+    def refuse(_body):
+        raise Fail(1, "Prime answered 400: Invalid image", "retry")
+
+    fake = http({**PRIME_ROUTES, ("POST", "/pods/"): refuse})
+    settings.providers["prime"] = {"image": "ubuntu_20_cuda_11"}
+    offer = next(o for o in Prime(settings).offers(Filters(), spot=False) if o.id == "gpu_1x_a6000")
+    with pytest.raises(Fail) as info:
+        Prime(settings).launch(offer, "ptest")
+    assert info.value.fix == "this offer takes: ubuntu_22_cuda_12"
+    assert len(fake.sent("POST", "/pods/")) == 1  # the list came with the offer, so no extra call
+
+
 def test_prime_reports_the_country_that_its_datacenter_name_does_not(settings, http):
     """`eu-north1` is in Finland. No amount of reading the code would have said so."""
     http(PRIME_ROUTES)
